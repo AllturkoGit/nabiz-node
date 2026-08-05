@@ -61,6 +61,84 @@ geçerli ile geçersiz imzayı dışarıya aynı yanıtla karşılar.
 
 ---
 
+## Hızlı kurulum reçetesi
+
+Bu bölüm bilerek adım adım ve eksiksiz yazıldı: bir yapay zekâ asistanına ya da ekipten
+birine olduğu gibi verilebilir. Sıra önemlidir.
+
+**Ön koşul:** Nabız panelinde proje açılmış olmalı; anahtar ve secret oradan gelir.
+Tarayıcı tarafı da kurulacaksa projeye **origin** eklenmesi zorunludur — tanımsız
+origin'den gelen olaylar sessizce reddedilir.
+
+```bash
+# 1. Paketi kur
+npm install @allturko/nabiz-node
+```
+
+```env
+# 2. .env — değişken adlarına NEXT_PUBLIC_ / NUXT_PUBLIC_ ÖNEKİ KOYMAYIN.
+#    O önek değeri tarayıcı paketine gömer ve secret internete çıkar.
+NABIZ_ENABLED=true
+NABIZ_URL=https://monitor.ornek.com
+NABIZ_KEY=proje-anahtari
+NABIZ_SECRET=64-karakterlik-secret
+NABIZ_ENV=production
+```
+
+```js
+// 3. Süreci başlatan yere tek satır. PM2 kullanılıyorsa ecosystem dosyasına:
+module.exports = {
+    apps: [{
+        name: 'uygulamam',
+        script: 'server.js',
+        env: {
+            NODE_OPTIONS: '--require @allturko/nabiz-node/auto',
+        },
+    }],
+};
+```
+
+```bash
+# 4. Yeniden başlat — --update-env ŞART.
+#    Onsuz PM2 eski ortamı korur, NODE_OPTIONS süreçte görünmez ve kurulum
+#    sessizce çalışmaz.
+pm2 restart uygulamam --update-env
+
+# 5. Doğrula
+npx nabiz-durum
+npx nabiz-durum --test
+```
+
+Son adım hub'a bir sınama olayı gönderir. **Panelden doğrulayın:** proje satırındaki
+bağlantı durumu `Bağlı` görünmelidir. Komut bunu kendi başına söyleyemez — hub geçerli ile
+geçersiz imzayı dışarıya aynı yanıtla karşılar.
+
+### Neye dokunulur, neye dokunulmaz
+
+| | Nereye |
+|---|---|
+| Paket | `package.json` (npm install) |
+| Ayarlar | `.env` |
+| Yükleme | Süreci başlatan yer — PM2 config, systemd unit ya da start komutu |
+| **Uygulama kaynağı** | **Dokunulmaz** |
+
+`NODE_OPTIONS` uygulamanın kendi `.env` dosyasına yazılamaz: Node onu süreç başlarken
+okur, `.env` ise uygulama çalışmaya başladıktan sonra okunur. Node'un kısıtı, tasarım
+tercihi değil.
+
+### Bu reçetenin kapsamadıkları
+
+- **Next'in kendi içinde yakaladığı SSR render hataları.** `instrumentation.js` gerekir
+  (aşağıda).
+- **Tarayıcı hataları.** Onlar hub'dan servis edilen `t.js` ile toplanır; HTML'e bir
+  `<script>` etiketi eklenmesi gerekir. Paket bunu otomatik enjekte etmez ve etmemeli:
+  yanıt gövdesini değiştirmek `Content-Length`'i bozar, streaming SSR'ı kırar ve
+  sıkıştırmayla çakışır.
+- **Kesin rota deseni.** Ham yol normalize edilir (`/urunler/1042` → `/urunler/{id}`);
+  framework'ün eşleştirdiği desen gerekiyorsa Express middleware'i kullanılır.
+
+---
+
 ## Kullanım
 
 ### Kodsuz kurulum (önerilen)
