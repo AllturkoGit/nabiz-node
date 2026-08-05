@@ -1,7 +1,7 @@
 'use strict';
 
-const { ortam } = require('./ortam');
-const { Reporter, SDK_SURUMU } = require('./reporter');
+const { env: readEnv } = require('./env');
+const { Reporter, SDK_VERSION } = require('./reporter');
 const Scrubber = require('./scrubber');
 
 /**
@@ -18,18 +18,18 @@ const Scrubber = require('./scrubber');
  */
 
 /** @type {Reporter|null} */
-let raporlayici = null;
+let instance = null;
 
 /**
  * Ortam değişkenlerinden yapılandırma. Laravel paketiyle aynı isimler
  * kullanılıyor: aynı projeyi iki dilde izleyen ekip iki ayrı isim seti
  * öğrenmek zorunda kalmasın.
  *
- * `process.env` değil `ortam()`: ön yükleme sırasında framework henüz kendi
+ * `process.env` değil `readEnv()`: ön yükleme sırasında framework henüz kendi
  * `.env`'ini okumamış oluyor ve süreç ortamı boş görünüyor.
  */
-function ortamdan() {
-    const e = { ...process.env, ...ortam() };
+function fromEnvironment() {
+    const e = { ...process.env, ...readEnv() };
 
     return {
         enabled: e.NABIZ_ENABLED !== 'false',
@@ -49,29 +49,29 @@ function ortamdan() {
  * Raporlayıcıyı kurar. Çağrılmazsa ilk kullanımda ortam değişkenlerinden
  * kendiliğinden kurulur — kurulum adımını unutmak sessiz arıza üretmesin.
  *
- * @param {Record<string, unknown>} [ayar]
+ * @param {Record<string, unknown>} [options]
  */
-function init(ayar = {}) {
-    raporlayici = new Reporter({ ...ortamdan(), ...ayar });
+function init(options = {}) {
+    instance = new Reporter({ ...fromEnvironment(), ...options });
 
-    return raporlayici;
+    return instance;
 }
 
 function reporter() {
-    if (!raporlayici) init();
+    if (!instance) init();
 
-    return raporlayici;
+    return instance;
 }
 
 /**
  * Bir hatayı hub'a bildirir. Hiçbir koşulda hata fırlatmaz ve **beklenmesi
  * gerekmez**: `await` edilmezse arka planda tamamlanır.
  *
- * @param {unknown} hata
- * @param {{kind?: string, route?: string, method?: string}} [baglam]
+ * @param {unknown} error
+ * @param {{kind?: string, route?: string, method?: string}} [context]
  */
-function report(hata, baglam) {
-    return reporter().recordException(hata, baglam);
+function report(error, context) {
+    return reporter().recordException(error, context);
 }
 
 /**
@@ -84,8 +84,8 @@ function report(hata, baglam) {
 function hookProcess() {
     const r = reporter();
 
-    process.on('uncaughtException', (hata) => {
-        r.recordException(hata, { kind: 'exception' });
+    process.on('uncaughtException', (error) => {
+        r.recordException(error, { kind: 'exception' });
 
         /*
          * Yeniden fırlatılmıyor ve process.exit çağrılmıyor: dinleyici
@@ -94,8 +94,8 @@ function hookProcess() {
          */
     });
 
-    process.on('unhandledRejection', (sebep) => {
-        r.recordException(sebep, { kind: 'exception' });
+    process.on('unhandledRejection', (reason) => {
+        r.recordException(reason, { kind: 'exception' });
     });
 
     return r;
@@ -108,7 +108,7 @@ module.exports = {
     reporter,
     Reporter,
     Scrubber,
-    surum: SDK_SURUMU,
+    version: SDK_VERSION,
     express: require('./express').express,
     nextOnRequestError: require('./next').nextOnRequestError,
 };

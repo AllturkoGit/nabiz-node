@@ -12,24 +12,24 @@ process.env.NABIZ_KEY = 'ornek-proje';
 process.env.NABIZ_SECRET = 'a'.repeat(64);
 process.env.NABIZ_SLOW_REQUEST_MS = '0';
 
-const { yolDeseni } = require('../src/auto');
+const { routePattern } = require('../src/auto');
 
-let gonderilenler = [];
-let asilFetch;
+let sent = [];
+let originalFetch;
 
 beforeEach(() => {
-    gonderilenler = [];
-    asilFetch = global.fetch;
+    sent = [];
+    originalFetch = global.fetch;
 
-    global.fetch = async (url, ayar) => {
-        gonderilenler.push(JSON.parse(ayar.body));
+    global.fetch = async (url, options) => {
+        sent.push(JSON.parse(options.body));
 
         return { status: 204, ok: true };
     };
 });
 
 afterEach(() => {
-    global.fetch = asilFetch;
+    global.fetch = originalFetch;
 });
 
 /**
@@ -37,17 +37,17 @@ afterEach(() => {
  * parmak izi üretir ve gruplama tamamen anlamsızlaşır.
  */
 test('yol deseni kimlikleri normalize eder', () => {
-    assert.strictEqual(yolDeseni('/urunler/1042'), '/urunler/{id}');
+    assert.strictEqual(routePattern('/urunler/1042'), '/urunler/{id}');
     assert.strictEqual(
-        yolDeseni('/siparis/f47ac10b-58cc-4372-a567-0e02b2c3d479/detay'),
+        routePattern('/siparis/f47ac10b-58cc-4372-a567-0e02b2c3d479/detay'),
         '/siparis/{uuid}/detay',
     );
-    assert.strictEqual(yolDeseni('/dosya/a1b2c3d4e5f60718'), '/dosya/{hash}');
-    assert.strictEqual(yolDeseni('/urunler'), '/urunler');
+    assert.strictEqual(routePattern('/dosya/a1b2c3d4e5f60718'), '/dosya/{hash}');
+    assert.strictEqual(routePattern('/urunler'), '/urunler');
 });
 
 test('yol deseni query string taşımaz', () => {
-    assert.strictEqual(yolDeseni('/ara?q=gizli&token=abc'), '/ara');
+    assert.strictEqual(routePattern('/ara?q=gizli&token=abc'), '/ara');
 });
 
 /**
@@ -55,53 +55,53 @@ test('yol deseni query string taşımaz', () => {
  * ölçülüyor.
  */
 test('yamalanan sunucu isteği kod eklenmeden ölçer', async () => {
-    const sunucu = http.createServer((req, res) => {
+    const server = http.createServer((req, res) => {
         res.statusCode = 500;
         res.end('hata');
     });
 
-    await new Promise((c) => sunucu.listen(0, c));
+    await new Promise((done) => server.listen(0, done));
 
-    const port = sunucu.address().port;
-    await fetchGercek(`http://127.0.0.1:${port}/urunler/42`);
+    const port = server.address().port;
+    await rawFetch(`http://127.0.0.1:${port}/urunler/42`);
 
     // finish olayı ve gönderim aynı tick'te bitmiyor.
-    await new Promise((c) => setTimeout(c, 50));
+    await new Promise((done) => setTimeout(done, 50));
 
-    sunucu.close();
+    server.close();
 
-    const olay = gonderilenler.find((g) => g.kind === 'http_5xx');
+    const event = sent.find((e) => e.kind === 'http_5xx');
 
-    assert.ok(olay, '5xx olayı gönderilmeliydi');
-    assert.strictEqual(olay.status, 500);
-    assert.strictEqual(olay.route, 'GET /urunler/{id}');
+    assert.ok(event, '5xx olayı gönderilmeliydi');
+    assert.strictEqual(event.status, 500);
+    assert.strictEqual(event.route, 'GET /urunler/{id}');
 });
 
 /** Yama isteği ne değiştirmeli ne de bozmalı. */
 test('yama isteğin yanıtını değiştirmez', async () => {
-    const sunucu = http.createServer((req, res) => {
+    const server = http.createServer((req, res) => {
         res.setHeader('content-type', 'text/plain');
         res.end('merhaba');
     });
 
-    await new Promise((c) => sunucu.listen(0, c));
+    await new Promise((done) => server.listen(0, done));
 
-    const port = sunucu.address().port;
-    const yanit = await fetchGercek(`http://127.0.0.1:${port}/`);
+    const port = server.address().port;
+    const response = await rawFetch(`http://127.0.0.1:${port}/`);
 
-    sunucu.close();
+    server.close();
 
-    assert.strictEqual(yanit.govde, 'merhaba');
-    assert.strictEqual(yanit.durum, 200);
+    assert.strictEqual(response.body, 'merhaba');
+    assert.strictEqual(response.status, 200);
 });
 
 /** global.fetch sahte; gerçek istek için ham http kullanılıyor. */
-function fetchGercek(url) {
-    return new Promise((cozumle, reddet) => {
+function rawFetch(url) {
+    return new Promise((resolve, reject) => {
         http.get(url, (res) => {
-            let govde = '';
-            res.on('data', (p) => (govde += p));
-            res.on('end', () => cozumle({ durum: res.statusCode, govde }));
-        }).on('error', reddet);
+            let body = '';
+            res.on('data', (chunk) => (body += chunk));
+            res.on('end', () => resolve({ status: res.statusCode, body }));
+        }).on('error', reject);
     });
 }

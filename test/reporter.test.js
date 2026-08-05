@@ -6,29 +6,29 @@ const { createHmac } = require('node:crypto');
 
 const { Reporter } = require('../src/reporter');
 
-const AYAR = {
+const OPTIONS = {
     url: 'https://hub.ornek',
     key: 'ornek-proje',
     secret: 'a'.repeat(64),
     env: 'production',
 };
 
-let gonderilenler = [];
-let asilFetch;
+let sent = [];
+let originalFetch;
 
 beforeEach(() => {
-    gonderilenler = [];
-    asilFetch = global.fetch;
+    sent = [];
+    originalFetch = global.fetch;
 
-    global.fetch = async (url, ayar) => {
-        gonderilenler.push({ url, ayar, govde: JSON.parse(ayar.body) });
+    global.fetch = async (url, options) => {
+        sent.push({ url, options, body: JSON.parse(options.body) });
 
         return { status: 204, ok: true };
     };
 });
 
 afterEach(() => {
-    global.fetch = asilFetch;
+    global.fetch = originalFetch;
 });
 
 test('yapılandırma eksikse hiçbir şey gönderilmez', async () => {
@@ -36,102 +36,102 @@ test('yapılandırma eksikse hiçbir şey gönderilmez', async () => {
         new Error('x'),
     );
 
-    assert.strictEqual(gonderilenler.length, 0);
+    assert.strictEqual(sent.length, 0);
 });
 
 test('enabled false iken gönderim yapılmaz', async () => {
-    await new Reporter({ ...AYAR, enabled: false }).recordException(new Error('x'));
+    await new Reporter({ ...OPTIONS, enabled: false }).recordException(new Error('x'));
 
-    assert.strictEqual(gonderilenler.length, 0);
+    assert.strictEqual(sent.length, 0);
 });
 
 test('hata raporlanır ve imzalanır', async () => {
-    await new Reporter(AYAR).recordException(new Error('Bir şey patladı'));
+    await new Reporter(OPTIONS).recordException(new Error('Bir şey patladı'));
 
-    assert.strictEqual(gonderilenler.length, 1);
+    assert.strictEqual(sent.length, 1);
 
-    const { url, ayar, govde } = gonderilenler[0];
+    const { url, options, body } = sent[0];
 
     assert.strictEqual(url, 'https://hub.ornek/api/i/ornek-proje/server');
-    assert.strictEqual(govde.kind, 'exception');
-    assert.strictEqual(govde.msg, 'Bir şey patladı');
-    assert.strictEqual(govde.exception_class, 'Error');
-    assert.strictEqual(govde.runtime, 'node');
-    assert.ok(govde.sdk_version);
+    assert.strictEqual(body.kind, 'exception');
+    assert.strictEqual(body.msg, 'Bir şey patladı');
+    assert.strictEqual(body.exception_class, 'Error');
+    assert.strictEqual(body.runtime, 'node');
+    assert.ok(body.sdk_version);
 
     // İmza gövdenin tamamını ve zaman damgasını kapsamalı.
-    const damga = ayar.headers['X-Nabiz-Timestamp'];
-    const beklenen = createHmac('sha256', AYAR.secret)
-        .update(`${damga}.${ayar.body}`)
+    const timestamp = options.headers['X-Nabiz-Timestamp'];
+    const expected = createHmac('sha256', OPTIONS.secret)
+        .update(`${timestamp}.${options.body}`)
         .digest('hex');
 
-    assert.strictEqual(ayar.headers['X-Nabiz-Signature'], `sha256=${beklenen}`);
+    assert.strictEqual(options.headers['X-Nabiz-Signature'], `sha256=${expected}`);
 });
 
 test('aynı hata iki kez raporlanmaz', async () => {
-    const r = new Reporter(AYAR);
-    const hata = new Error('tekrar');
+    const r = new Reporter(OPTIONS);
+    const error = new Error('tekrar');
 
-    await r.recordException(hata);
-    await r.recordException(hata);
+    await r.recordException(error);
+    await r.recordException(error);
 
-    assert.strictEqual(gonderilenler.length, 1);
+    assert.strictEqual(sent.length, 1);
 });
 
 test('yok sayılan hata adları raporlanmaz', async () => {
-    const hata = new Error('bulunamadı');
-    hata.name = 'NotFoundError';
+    const error = new Error('bulunamadı');
+    error.name = 'NotFoundError';
 
-    await new Reporter({ ...AYAR, ignore: ['NotFoundError'] }).recordException(hata);
+    await new Reporter({ ...OPTIONS, ignore: ['NotFoundError'] }).recordException(error);
 
-    assert.strictEqual(gonderilenler.length, 0);
+    assert.strictEqual(sent.length, 0);
 });
 
 test('raporlanan olayda kişisel veri bulunmaz', async () => {
-    await new Reporter(AYAR).recordException(
+    await new Reporter(OPTIONS).recordException(
         new Error('Kullanıcı ahmet@ornek.com için 12345678901 geçersiz'),
     );
 
-    const msg = gonderilenler[0].govde.msg;
+    const msg = sent[0].body.msg;
 
     assert.ok(!msg.includes('ahmet@ornek.com'));
     assert.ok(!msg.includes('12345678901'));
 });
 
 test('eşik altındaki hızlı istek raporlanmaz', async () => {
-    await new Reporter(AYAR).recordRequest({
+    await new Reporter(OPTIONS).recordRequest({
         route: '/urunler',
         method: 'GET',
         status: 200,
         durationMs: 40,
     });
 
-    assert.strictEqual(gonderilenler.length, 0);
+    assert.strictEqual(sent.length, 0);
 });
 
 test('yavaş istek raporlanır', async () => {
-    await new Reporter(AYAR).recordRequest({
+    await new Reporter(OPTIONS).recordRequest({
         route: '/urunler',
         method: 'GET',
         status: 200,
         durationMs: 2500,
     });
 
-    assert.strictEqual(gonderilenler[0].govde.kind, 'slow_request');
-    assert.strictEqual(gonderilenler[0].govde.duration_ms, 2500);
+    assert.strictEqual(sent[0].body.kind, 'slow_request');
+    assert.strictEqual(sent[0].body.duration_ms, 2500);
 });
 
 /** Hızlı da olsa 5xx her zaman raporlanır. */
 test('5xx hızlı olsa da raporlanır', async () => {
-    await new Reporter(AYAR).recordRequest({
+    await new Reporter(OPTIONS).recordRequest({
         route: '/api/siparis',
         method: 'POST',
         status: 500,
         durationMs: 12,
     });
 
-    assert.strictEqual(gonderilenler[0].govde.kind, 'http_5xx');
-    assert.strictEqual(gonderilenler[0].govde.status, 500);
+    assert.strictEqual(sent[0].body.kind, 'http_5xx');
+    assert.strictEqual(sent[0].body.status, 500);
 });
 
 /**
@@ -142,7 +142,7 @@ test('hub erişilemezse hata fırlatılmaz', async () => {
         throw new Error('ECONNREFUSED');
     };
 
-    await new Reporter(AYAR).recordException(new Error('x'));
+    await new Reporter(OPTIONS).recordException(new Error('x'));
     // Buraya ulaşmak testin kendisidir.
     assert.ok(true);
 });

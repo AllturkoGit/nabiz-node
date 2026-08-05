@@ -25,41 +25,37 @@ const { join } = require('node:path');
  * değişkeni görmesine gerek yok.
  */
 
-const ONEK = 'NABIZ_';
+const PREFIX = 'NABIZ_';
 
-let onbellek = null;
+let cache = null;
 
 /** @returns {Record<string, string>} */
-function ortam() {
-    if (onbellek) return onbellek;
+function env() {
+    if (cache) return cache;
 
-    const deger = {};
+    const values = {};
 
     // Sondan başa: önce en zayıf kaynak yazılır, güçlü olan üzerine yazar.
-    for (const dosya of dosyalar().reverse()) {
-        Object.assign(deger, oku(dosya));
+    for (const file of files().reverse()) {
+        Object.assign(values, read(file));
     }
 
-    for (const [anahtar, v] of Object.entries(process.env)) {
-        if (anahtar.startsWith(ONEK) && v !== undefined && v !== '') {
-            deger[anahtar] = v;
+    for (const [key, value] of Object.entries(process.env)) {
+        if (key.startsWith(PREFIX) && value !== undefined && value !== '') {
+            values[key] = value;
         }
     }
 
-    onbellek = deger;
+    cache = values;
 
-    return deger;
+    return values;
 }
 
 /** @returns {string[]} güçlüden zayıfa */
-function dosyalar() {
-    const ortamAdi = process.env.NODE_ENV;
+function files() {
+    const name = process.env.NODE_ENV;
 
-    return [
-        ortamAdi ? `.env.${ortamAdi}` : null,
-        '.env.local',
-        '.env',
-    ].filter(Boolean);
+    return [name ? `.env.${name}` : null, '.env.local', '.env'].filter(Boolean);
 }
 
 /**
@@ -70,49 +66,49 @@ function dosyalar() {
  *
  * @returns {Record<string, string>}
  */
-function oku(dosya) {
-    const deger = {};
+function read(file) {
+    const values = {};
 
-    let icerik;
+    let content;
     try {
-        icerik = readFileSync(join(process.cwd(), dosya), 'utf8');
+        content = readFileSync(join(process.cwd(), file), 'utf8');
     } catch {
         // Dosya yoksa ya da okunamıyorsa sessizce geç.
-        return deger;
+        return values;
     }
 
-    for (const ham of icerik.split('\n')) {
-        const satir = ham.trim().replace(/^export\s+/, '');
+    for (const raw of content.split('\n')) {
+        const line = raw.trim().replace(/^export\s+/, '');
 
-        if (!satir || satir.startsWith('#')) continue;
+        if (!line || line.startsWith('#')) continue;
 
-        const ayirac = satir.indexOf('=');
-        if (ayirac < 1) continue;
+        const separator = line.indexOf('=');
+        if (separator < 1) continue;
 
-        const anahtar = satir.slice(0, ayirac).trim();
-        if (!anahtar.startsWith(ONEK)) continue;
+        const key = line.slice(0, separator).trim();
+        if (!key.startsWith(PREFIX)) continue;
 
-        let v = satir.slice(ayirac + 1).trim();
+        let value = line.slice(separator + 1).trim();
 
         // Tırnak içindeyse tırnaklar atılır; değilse satır sonu yorumu kesilir.
         if (
-            (v.startsWith('"') && v.endsWith('"')) ||
-            (v.startsWith("'") && v.endsWith("'"))
+            (value.startsWith('"') && value.endsWith('"')) ||
+            (value.startsWith("'") && value.endsWith("'"))
         ) {
-            v = v.slice(1, -1);
+            value = value.slice(1, -1);
         } else {
-            v = v.split(' #')[0].trim();
+            value = value.split(' #')[0].trim();
         }
 
-        if (v !== '') deger[anahtar] = v;
+        if (value !== '') values[key] = value;
     }
 
-    return deger;
+    return values;
 }
 
 /** Test için: önbelleği düşürür. */
-function unut() {
-    onbellek = null;
+function forget() {
+    cache = null;
 }
 
-module.exports = { ortam, unut };
+module.exports = { env, forget };

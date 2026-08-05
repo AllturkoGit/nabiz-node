@@ -14,12 +14,12 @@ const Scrubber = require('./scrubber');
  *
  *     app.use(nabiz.errors());
  */
-function express(ayar = {}) {
+function express(options = {}) {
     // Geç çözülüyor: init() middleware'den sonra çağrılmış olabilir.
-    const al = () => require('./index').reporter();
+    const get = () => require('./index').reporter();
 
     return function nabizMiddleware(req, res, next) {
-        const baslangic = process.hrtime.bigint();
+        const startedAt = process.hrtime.bigint();
 
         /*
          * `finish` yerine `close` da dinlenmeli mi diye düşünülebilir; hayır:
@@ -28,16 +28,16 @@ function express(ayar = {}) {
          */
         res.once('finish', () => {
             try {
-                const sureMs =
-                    Number(process.hrtime.bigint() - baslangic) / 1_000_000;
+                const durationMs =
+                    Number(process.hrtime.bigint() - startedAt) / 1_000_000;
 
-                al().recordRequest({
+                get().recordRequest({
                     // Rota deseni gönderilir, gerçek id değil: hem gruplama
                     // çalışır hem yolda kişisel veri taşınmaz.
-                    route: rota(req),
+                    route: routePattern(req),
                     method: req.method,
                     status: res.statusCode,
-                    durationMs: sureMs,
+                    durationMs,
                 });
             } catch {
                 // İzleme kodu isteği bozmaz.
@@ -50,12 +50,12 @@ function express(ayar = {}) {
 
 /** Express hata middleware'i. Hatayı **yutmaz**, zincire devrederek geçirir. */
 express.errors = function errors() {
-    const al = () => require('./index').reporter();
+    const get = () => require('./index').reporter();
 
-    return function nabizHataMiddleware(hata, req, res, next) {
+    return function nabizErrorMiddleware(error, req, res, next) {
         try {
-            al().recordException(hata, {
-                route: rota(req),
+            get().recordException(error, {
+                route: routePattern(req),
                 method: req.method,
             });
         } catch {
@@ -63,7 +63,7 @@ express.errors = function errors() {
         }
 
         // Handler zinciri korunur; uygulamanın kendi hata sayfası çalışır.
-        next(hata);
+        next(error);
     };
 };
 
@@ -71,12 +71,12 @@ express.errors = function errors() {
  * Express'in eşleşen rota deseni (`/urunler/:id`), gerçek yol değil.
  * Desen yoksa yola düşülür ve query string atılır (M3).
  */
-function rota(req) {
-    const desen =
+function routePattern(req) {
+    const pattern =
         (req.route && req.route.path) ||
         (req.baseUrl ? req.baseUrl + (req.route ? req.route.path : '') : null);
 
-    return Scrubber.path(desen || req.originalUrl || req.url) || '/';
+    return Scrubber.path(pattern || req.originalUrl || req.url) || '/';
 }
 
 module.exports = { express };

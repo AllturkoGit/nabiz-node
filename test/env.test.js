@@ -6,29 +6,29 @@ const { mkdtempSync, writeFileSync, rmSync } = require('node:fs');
 const { tmpdir } = require('node:os');
 const { join } = require('node:path');
 
-const { ortam, unut } = require('../src/ortam');
+const { env: readEnv, forget } = require('../src/env');
 
-let dizin;
-let eskiCwd;
-let eskiEnv;
+let dir;
+let previousCwd;
+let previousEnv;
 
 beforeEach(() => {
-    dizin = mkdtempSync(join(tmpdir(), 'nabiz-'));
-    eskiCwd = process.cwd();
-    eskiEnv = { ...process.env };
-    process.chdir(dizin);
-    unut();
+    dir = mkdtempSync(join(tmpdir(), 'nabiz-'));
+    previousCwd = process.cwd();
+    previousEnv = { ...process.env };
+    process.chdir(dir);
+    forget();
 });
 
 afterEach(() => {
-    process.chdir(eskiCwd);
-    rmSync(dizin, { recursive: true, force: true });
-    process.env = eskiEnv;
-    unut();
+    process.chdir(previousCwd);
+    rmSync(dir, { recursive: true, force: true });
+    process.env = previousEnv;
+    forget();
 });
 
-function yaz(ad, icerik) {
-    writeFileSync(join(dizin, ad), icerik);
+function write(name, content) {
+    writeFileSync(join(dir, name), content);
 }
 
 /**
@@ -38,9 +38,9 @@ function yaz(ad, icerik) {
  */
 test('.env dosyasından okur', () => {
     delete process.env.NABIZ_URL;
-    yaz('.env', 'NABIZ_URL=https://hub.ornek\nNABIZ_KEY=ornek\n');
+    write('.env', 'NABIZ_URL=https://hub.ornek\nNABIZ_KEY=ornek\n');
 
-    const e = ortam();
+    const e = readEnv();
 
     assert.strictEqual(e.NABIZ_URL, 'https://hub.ornek');
     assert.strictEqual(e.NABIZ_KEY, 'ornek');
@@ -48,19 +48,19 @@ test('.env dosyasından okur', () => {
 
 test('süreç ortamı dosyayı ezer', () => {
     process.env.NABIZ_URL = 'https://surecten';
-    yaz('.env', 'NABIZ_URL=https://dosyadan\n');
+    write('.env', 'NABIZ_URL=https://dosyadan\n');
 
-    assert.strictEqual(ortam().NABIZ_URL, 'https://surecten');
+    assert.strictEqual(readEnv().NABIZ_URL, 'https://surecten');
 });
 
 test('.env.<NODE_ENV> .env dosyasını ezer', () => {
     delete process.env.NABIZ_URL;
     process.env.NODE_ENV = 'production';
 
-    yaz('.env', 'NABIZ_URL=https://genel\n');
-    yaz('.env.production', 'NABIZ_URL=https://uretim\n');
+    write('.env', 'NABIZ_URL=https://genel\n');
+    write('.env.production', 'NABIZ_URL=https://uretim\n');
 
-    assert.strictEqual(ortam().NABIZ_URL, 'https://uretim');
+    assert.strictEqual(readEnv().NABIZ_URL, 'https://uretim');
 });
 
 test('yorum, tırnak ve export öneki ayrıştırılır', () => {
@@ -68,7 +68,7 @@ test('yorum, tırnak ve export öneki ayrıştırılır', () => {
     delete process.env.NABIZ_KEY;
     delete process.env.NABIZ_SECRET;
 
-    yaz(
+    write(
         '.env',
         [
             '# yorum satırı',
@@ -79,7 +79,7 @@ test('yorum, tırnak ve export öneki ayrıştırılır', () => {
         ].join('\n'),
     );
 
-    const e = ortam();
+    const e = readEnv();
 
     assert.strictEqual(e.NABIZ_URL, 'https://hub.ornek');
     assert.strictEqual(e.NABIZ_KEY, 'tirnakli-deger');
@@ -88,14 +88,14 @@ test('yorum, tırnak ve export öneki ayrıştırılır', () => {
 
 /** Paketin başka hiçbir değişkeni görmesine gerek yok. */
 test('NABIZ_ dışındaki anahtarlar okunmaz', () => {
-    yaz('.env', 'DB_PASSWORD=gizli\nNABIZ_KEY=ornek\n');
+    write('.env', 'DB_PASSWORD=gizli\nNABIZ_KEY=ornek\n');
 
-    const e = ortam();
+    const e = readEnv();
 
     assert.strictEqual(e.DB_PASSWORD, undefined);
     assert.strictEqual(e.NABIZ_KEY, 'ornek');
 });
 
 test('dosya yoksa hata vermez', () => {
-    assert.doesNotThrow(() => ortam());
+    assert.doesNotThrow(() => readEnv());
 });

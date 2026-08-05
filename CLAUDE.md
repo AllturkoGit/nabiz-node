@@ -8,8 +8,13 @@ Kardeş paketler: [nabiz-laravel](https://github.com/AllturkoGit/nabiz-laravel) 
 
 ## Dil
 
-Yorumlar ve dokümantasyon Türkçe; sınıf/fonksiyon/değişken adları İngilizce ama
-**yerel değişkenler Türkçe olabilir** (kardeş paketlerle aynı alışkanlık).
+Yorumlar ve dokümantasyon Türkçe; **sınıf, fonksiyon ve değişken adları İngilizce** —
+yerel değişkenler dahil. Kardeş paketlerle (`allturko/nabiz`) aynı kural.
+
+Bu paket kurulurken "yerel değişkenler Türkçe olabilir" diye gevşek bir istisna yazılmıştı;
+kaldırıldı. Karışık adlandırma okumayı zorlaştırıyor ve iki paket arasında geçiş yapan
+kişiyi yavaşlatıyor.
+
 README ve public API dokümantasyonu Türkçe.
 
 ---

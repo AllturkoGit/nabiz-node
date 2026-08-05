@@ -22,15 +22,15 @@ const Scrubber = require('./scrubber');
  * Next 14'te `onRequestError` yoktur; orada yalnızca `register()` içindeki
  * `hookProcess()` çalışır ve yakalanmamış hatalar toplanır.
  */
-function nextOnRequestError(hata, istek, baglam) {
+function nextOnRequestError(error, request, context) {
     try {
         const reporter = require('./index').reporter();
 
-        return reporter.recordException(hata, {
+        return reporter.recordException(error, {
             kind: 'exception',
             // Next yolu query string ile verebilir; M3 gereği atılır.
-            route: istek && istek.path ? Scrubber.path(istek.path) : undefined,
-            method: (istek && istek.method) || undefined,
+            route: request && request.path ? Scrubber.path(request.path) : undefined,
+            method: (request && request.method) || undefined,
         });
     } catch {
         // Kanca hiçbir koşulda render'ı bozmaz.

@@ -5,7 +5,7 @@
  * bağımlılık politikası gereği (bkz. README) derleme zinciri eklenmiyor.
  */
 
-export interface NabizAyar {
+export interface NabizOptions {
     /** false ise hiçbir veri gönderilmez. */
     enabled?: boolean;
     /** Hub adresi, örn. https://monitor.ornek.com */
@@ -28,17 +28,27 @@ export interface NabizAyar {
     source?: string;
 }
 
-export interface OlayBaglami {
+export interface EventContext {
     kind?: string;
     route?: string;
     method?: string;
 }
 
+/**
+ * Gönderim sonucu. Yalnızca teşhis komutu okuyor; izleme yolu görmezden
+ * geliyor — gönderim başarısızsa yapılacak bir şey yok.
+ */
+export interface SendResult {
+    sent: boolean;
+    status?: number;
+    error?: string;
+}
+
 export declare class Reporter {
-    constructor(ayar?: NabizAyar);
+    constructor(options?: NabizOptions);
     configured(): boolean;
-    recordException(hata: unknown, baglam?: OlayBaglami): Promise<void>;
-    recordRequest(olcum: {
+    recordException(error: unknown, context?: EventContext): Promise<SendResult>;
+    recordRequest(measurement: {
         route: string;
         method: string;
         status: number;
@@ -47,10 +57,10 @@ export declare class Reporter {
 }
 
 /** Raporlayıcıyı kurar. Çağrılmazsa ilk kullanımda ortamdan kurulur. */
-export declare function init(ayar?: NabizAyar): Reporter;
+export declare function init(options?: NabizOptions): Reporter;
 
 /** Bir hatayı bildirir. Hiçbir koşulda hata fırlatmaz. */
-export declare function report(hata: unknown, baglam?: OlayBaglami): Promise<void>;
+export declare function report(error: unknown, context?: EventContext): Promise<SendResult>;
 
 /** uncaughtException ve unhandledRejection dinlenir; süreç davranışı değişmez. */
 export declare function hookProcess(): Reporter;
@@ -58,35 +68,35 @@ export declare function hookProcess(): Reporter;
 export declare function reporter(): Reporter;
 
 /** Express/Connect middleware. Rotalardan önce eklenir. */
-export declare function express(ayar?: NabizAyar): (
+export declare function express(options?: NabizOptions): (
     req: any,
     res: any,
-    next: (hata?: unknown) => void,
+    next: (error?: unknown) => void,
 ) => void;
 
 export declare namespace express {
     /** Express hata middleware'i. Hatayı yutmaz, zincire devreder. */
     function errors(): (
-        hata: unknown,
+        error: unknown,
         req: any,
         res: any,
-        next: (hata?: unknown) => void,
+        next: (error?: unknown) => void,
     ) => void;
 }
 
 /** Next 15+ `instrumentation.js` içinden dışa aktarılır. */
 export declare function nextOnRequestError(
-    hata: unknown,
-    istek?: { path?: string; method?: string },
-    baglam?: unknown,
-): Promise<void> | void;
+    error: unknown,
+    request?: { path?: string; method?: string },
+    context?: unknown,
+): Promise<SendResult> | void;
 
-export declare const surum: string;
+export declare const version: string;
 
 export declare const Scrubber: {
-    text(deger: unknown, sinir: number): string | null;
-    path(deger: unknown): string | null;
-    sql(deger: unknown): string | null;
-    message(deger: unknown, sqlIceriyor?: boolean): string | null;
-    stack(deger: unknown): string | null;
+    text(value: unknown, limit: number): string | null;
+    path(value: unknown): string | null;
+    sql(value: unknown): string | null;
+    message(value: unknown, containsSql?: boolean): string | null;
+    stack(value: unknown): string | null;
 };

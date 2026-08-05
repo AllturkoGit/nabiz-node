@@ -3,7 +3,7 @@
 const { HubClient } = require('./client');
 const Scrubber = require('./scrubber');
 
-const SDK_SURUMU = require('../package.json').version;
+const SDK_VERSION = require('../package.json').version;
 
 /**
  * Ölçüm biriktirir ve olayları hub'a gönderir.
@@ -14,14 +14,14 @@ const SDK_SURUMU = require('../package.json').version;
  * bağlamı çağrı anında parametre olarak geçiliyor, alanda saklanmıyor.
  */
 class Reporter {
-    constructor(ayar = {}) {
-        this.client = new HubClient(ayar);
-        this.enabled = ayar.enabled !== false;
-        this.env = ayar.env || 'production';
-        this.release = ayar.release || null;
-        this.source = ayar.source || 'server';
-        this.slowRequestMs = ayar.slowRequestMs ?? 1000;
-        this.ignore = ayar.ignore || [];
+    constructor(options = {}) {
+        this.client = new HubClient(options);
+        this.enabled = options.enabled !== false;
+        this.env = options.env || 'production';
+        this.release = options.release || null;
+        this.source = options.source || 'server';
+        this.slowRequestMs = options.slowRequestMs ?? 1000;
+        this.ignore = options.ignore || [];
 
         /*
          * Aynı hatayı iki kez raporlamamak için. WeakSet: hata nesnesi çöp
@@ -35,33 +35,44 @@ class Reporter {
     }
 
     /**
-     * @param {unknown} hata
-     * @param {{kind?: string, route?: string, method?: string}} [baglam]
+     * @param {unknown} error
+     * @param {{kind?: string, route?: string, method?: string}} [context]
+     * @returns {Promise<{sent: boolean, status?: number, error?: string}>}
      */
-    async recordException(hata, baglam = {}) {
+    async recordException(error, context = {}) {
         try {
-            if (!this.configured()) return;
-            if (this.ignored(hata)) return;
-
-            if (hata && typeof hata === 'object') {
-                if (this.reported.has(hata)) return;
-                this.reported.add(hata);
+            if (!this.configured()) {
+                return { sent: false, error: 'yapilandirma-eksik' };
             }
 
-            const mesaj = hata && hata.message ? hata.message : String(hata);
+            if (this.ignored(error)) {
+                return { sent: false, error: 'yok-sayildi' };
+            }
 
-            await this.send({
-                kind: baglam.kind || 'exception',
+            if (error && typeof error === 'object') {
+                if (this.reported.has(error)) {
+                    return { sent: false, error: 'zaten-raporlandi' };
+                }
+
+                this.reported.add(error);
+            }
+
+            const message = error && error.message ? error.message : String(error);
+
+            return await this.send({
+                kind: context.kind || 'exception',
                 // Veritabanı hataları SQL'i bağlanmış değerlerle taşır;
                 // oturum kimliği, e-posta, kart numarası oradan sızabilir.
-                msg: Scrubber.message(mesaj, this.sqlIceriyor(hata)),
-                exception_class: (hata && hata.name) || 'Error',
-                stack: Scrubber.stack(hata && hata.stack),
-                route: baglam.route,
-                method: baglam.method,
+                msg: Scrubber.message(message, this.containsSql(error)),
+                exception_class: (error && error.name) || 'Error',
+                stack: Scrubber.stack(error && error.stack),
+                route: context.route,
+                method: context.method,
             });
-        } catch {
-            // Kendi hatasını raporlamaz — sonsuz döngü riski.
+        } catch (e) {
+            // Kendi hatasını raporlamaz — sonsuz döngü riski. Sonuç yalnızca
+            // teşhis komutu için üretiliyor.
+            return { sent: false, error: (e && e.message) || String(e) };
         }
     }
 
@@ -73,18 +84,18 @@ class Reporter {
         try {
             if (!this.configured()) return;
 
-            const yavas = durationMs >= this.slowRequestMs;
-            if (!yavas && status < 500) return;
+            const slow = durationMs >= this.slowRequestMs;
+            if (!slow && status < 500) return;
 
-            const etiket = `${method} ${route}`;
+            const label = `${method} ${route}`;
 
             await this.send({
                 kind: status >= 500 ? 'http_5xx' : 'slow_request',
                 msg:
                     status >= 500
-                        ? `${etiket} — HTTP ${status}`
-                        : `${etiket} — ${Math.round(durationMs)} ms`,
-                route: etiket,
+                        ? `${label} — HTTP ${status}`
+                        : `${label} — ${Math.round(durationMs)} ms`,
+                route: label,
                 method,
                 status,
                 duration_ms: Math.round(durationMs),
@@ -95,10 +106,15 @@ class Reporter {
         }
     }
 
-    /** @param {Record<string, unknown>} olay */
-    async send(olay) {
-        const govde = {
-            ...olay,
+    /**
+     * Ortak alanları ekleyip gönderir.
+     *
+     * @param {Record<string, unknown>} event
+     * @returns {Promise<{sent: boolean, status?: number, error?: string}>}
+     */
+    async send(event) {
+        const body = {
+            ...event,
             env: this.env,
             source: this.source,
             release: this.release,
@@ -109,37 +125,39 @@ class Reporter {
              */
             runtime: 'node',
             runtime_version: process.version,
-            sdk_version: SDK_SURUMU,
+            sdk_version: SDK_VERSION,
         };
 
-        for (const anahtar of Object.keys(govde)) {
-            if (govde[anahtar] === null || govde[anahtar] === undefined) {
-                delete govde[anahtar];
+        for (const key of Object.keys(body)) {
+            if (body[key] === null || body[key] === undefined) {
+                delete body[key];
             }
         }
 
-        await this.client.send(govde);
+        return await this.client.send(body);
     }
 
     /**
      * Mesajı SQL taşıyan hatalar. Sürücü paketlerine bağımlılık kurulmadığı
      * için ada ve içeriğe bakılıyor.
      */
-    sqlIceriyor(hata) {
-        const ad = (hata && hata.name) || '';
-        const mesaj = (hata && hata.message) || '';
+    containsSql(error) {
+        const name = (error && error.name) || '';
+        const message = (error && error.message) || '';
 
         return (
-            /sequelize|prisma|query|database|pg|mysql/i.test(ad) ||
-            /\bselect\b|\binsert\b|\bupdate\b|\bdelete\b/i.test(mesaj)
+            /sequelize|prisma|query|database|pg|mysql/i.test(name) ||
+            /\bselect\b|\binsert\b|\bupdate\b|\bdelete\b/i.test(message)
         );
     }
 
-    ignored(hata) {
-        const ad = (hata && hata.name) || '';
+    ignored(error) {
+        const name = (error && error.name) || '';
 
-        return this.ignore.some((k) => k === ad || (hata && hata instanceof k));
+        return this.ignore.some(
+            (entry) => entry === name || (error && error instanceof entry),
+        );
     }
 }
 
-module.exports = { Reporter, SDK_SURUMU };
+module.exports = { Reporter, SDK_VERSION };

@@ -11,13 +11,13 @@ const { createHmac } = require('node:crypto');
  */
 class HubClient {
     /**
-     * @param {{url?: string, key?: string, secret?: string, timeout?: number}} ayar
+     * @param {{url?: string, key?: string, secret?: string, timeout?: number}} options
      */
-    constructor(ayar = {}) {
-        this.url = ayar.url || null;
-        this.key = ayar.key || null;
-        this.secret = ayar.secret || null;
-        this.timeout = ayar.timeout ?? 2000;
+    constructor(options = {}) {
+        this.url = options.url || null;
+        this.key = options.key || null;
+        this.secret = options.secret || null;
+        this.timeout = options.timeout ?? 2000;
     }
 
     configured() {
@@ -25,14 +25,32 @@ class HubClient {
     }
 
     /**
+     * Sonuç döndürür ama **asla hata fırlatmaz.**
+     *
+     * Sonucu yalnızca teşhis komutu okuyor; izleme yolu görmezden geliyor.
+     * Gönderim başarısızsa yapılacak bir şey yok, izlenen uygulamayı bundan
+     * haberdar etmek log kirliliğinden başka işe yaramaz (davranış garantisi 4).
+     *
+     * Yine de sonucu üretmek zorunlu: `nabiz-durum --test` "gönderildi" derken
+     * gerçekte hiçbir şey gitmemiş olabiliyordu ve kuran kişi kurulumu çalışır
+     * sanıyordu. Teşhis aracının yanlış teşhis koyması, hiç teşhis koymamaktan
+     * kötüdür.
+     *
      * @param {Record<string, unknown>} payload
-     * @returns {Promise<void>}
+     * @returns {Promise<{sent: boolean, status?: number, error?: string}>}
      */
     async send(payload) {
-        if (!this.configured()) return;
+        if (!this.configured()) {
+            return { sent: false, error: 'yapilandirma-eksik' };
+        }
 
         try {
             const body = JSON.stringify(payload);
+
+            if (body === undefined) {
+                return { sent: false, error: 'govde-kodlanamadi' };
+            }
+
             const timestamp = String(Math.floor(Date.now() / 1000));
 
             // Zaman damgası imzaya dahildir; olmasaydı saldırgan damgayı
@@ -43,10 +61,9 @@ class HubClient {
 
             /*
              * Zaman aşımı kısa ve zorunlu: raporlama isteği hiçbir koşulda
-             * kullanıcının isteğini bekletmemeli. AbortSignal.timeout Node
-             * 17.3+ ile var; daha eskisi zaten desteklenmiyor.
+             * kullanıcının isteğini bekletmemeli.
              */
-            await fetch(
+            const response = await fetch(
                 `${this.url.replace(/\/+$/, '')}/api/i/${encodeURIComponent(this.key)}/server`,
                 {
                     method: 'POST',
@@ -62,9 +79,17 @@ class HubClient {
                     },
                 },
             );
-        } catch {
+
+            /*
+             * Hub başarıda da geçersiz istekte de 204 döner (saldırgana geri
+             * bildirim verilmez). Yani 204 "kabul edildi" demek DEĞİL, yalnızca
+             * "istek ulaştı" demek. Teşhis komutu bunu açıkça yazıyor.
+             */
+            return { sent: response.status < 400, status: response.status };
+        } catch (e) {
             // Sessizce vazgeç. İzleme paketinin izlediği uygulamayı bozması,
             // çözdüğü sorundan büyük bir sorundur.
+            return { sent: false, error: (e && e.message) || String(e) };
         }
     }
 }

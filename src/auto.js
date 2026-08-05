@@ -35,7 +35,7 @@ try {
     | o anda görünmüyorsa kanca hiç kurulmuyor ve uygulama ömrü boyunca
     | kurulmuyordu — hiçbir uyarı vermeden.
     |
-    | Artık `.env` doğrudan okunuyor (bkz. ortam.js), ama yine de geç gelen
+    | Artık `.env` doğrudan okunuyor (bkz. env.js), ama yine de geç gelen
     | yapılandırmaya karşı korunmak gerekiyor. Kanca kurmanın maliyeti istek
     | başına tek bir boolean kontrolü; Reporter yapılandırma yoksa zaten
     | erken dönüyor.
@@ -45,7 +45,7 @@ try {
     */
     if (r.enabled) {
         hookProcess();
-        httpYamala();
+        patchHttp();
     }
 } catch {
     // Kodsuz kurulum, uygulamayı hiçbir koşulda başlatılamaz hâle getiremez.
@@ -58,37 +58,37 @@ try {
  * sunucuyu `new http.Server()`, `createServer()` ya da framework içinden
  * kurabiliyor; hepsi bu noktadan geçiyor.
  */
-function httpYamala() {
-    for (const modul of ['node:http', 'node:https']) {
+function patchHttp() {
+    for (const moduleName of ['node:http', 'node:https']) {
         try {
-            const http = require(modul);
-            const Sunucu = http.Server;
+            const http = require(moduleName);
+            const Server = http.Server;
 
-            if (!Sunucu || Sunucu.prototype.__nabizYamali) continue;
+            if (!Server || Server.prototype.__nabizPatched) continue;
 
-            const asilEmit = Sunucu.prototype.emit;
+            const originalEmit = Server.prototype.emit;
 
-            Sunucu.prototype.emit = function (olay, req, res) {
-                if (olay === 'request') {
+            Server.prototype.emit = function (event, req, res) {
+                if (event === 'request') {
                     try {
-                        olc(req, res);
+                        measure(req, res);
                     } catch {
                         // Ölçüm kurulamadıysa istek yine de işlenir.
                     }
                 }
 
-                return asilEmit.apply(this, arguments);
+                return originalEmit.apply(this, arguments);
             };
 
-            Sunucu.prototype.__nabizYamali = true;
+            Server.prototype.__nabizPatched = true;
         } catch {
             // Modül yoksa geç.
         }
     }
 }
 
-function olc(req, res) {
-    const baslangic = process.hrtime.bigint();
+function measure(req, res) {
+    const startedAt = process.hrtime.bigint();
 
     /*
      * `close` değil `finish` dinleniyor: `close` istemci bağlantıyı kestiğinde
@@ -98,10 +98,10 @@ function olc(req, res) {
     res.once('finish', () => {
         try {
             reporter().recordRequest({
-                route: yolDeseni(req.url),
+                route: routePattern(req.url),
                 method: req.method,
                 status: res.statusCode,
-                durationMs: Number(process.hrtime.bigint() - baslangic) / 1_000_000,
+                durationMs: Number(process.hrtime.bigint() - startedAt) / 1_000_000,
             });
         } catch {
             // Sessiz.
@@ -115,7 +115,7 @@ function olc(req, res) {
  * Olmasaydı her ürün sayfası ayrı bir parmak izi üretir, panel binlerce tek
  * seferlik satırla dolar ve gruplama tamamen anlamsızlaşırdı.
  */
-function yolDeseni(url) {
+function routePattern(url) {
     /*
     | Sıra önemli: normalize ÖNCE, temizlik SONRA.
     |
@@ -123,29 +123,29 @@ function yolDeseni(url) {
     | eşiğinin çok üstünde) ve `/siparis/{uuid}/detay` yerine
     | `/siparis/[jeton]/detay` çıkıyordu. Testin yakaladığı gerçek bir hataydı.
     */
-    let yol = String(url || '/')
+    let path = String(url || '/')
         .split('?')[0]
         .split('#')[0];
 
-    yol =
-        yol
+    path =
+        path
             .split('/')
-            .map((parca) => {
-                if (parca === '') return parca;
+            .map((segment) => {
+                if (segment === '') return segment;
 
                 // Sayı, uuid, uzun hash: hepsi kimlik.
-                if (/^\d+$/.test(parca)) return '{id}';
-                if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(parca)) {
+                if (/^\d+$/.test(segment)) return '{id}';
+                if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(segment)) {
                     return '{uuid}';
                 }
-                if (/^[0-9a-f]{16,}$/i.test(parca)) return '{hash}';
+                if (/^[0-9a-f]{16,}$/i.test(segment)) return '{hash}';
 
-                return parca;
+                return segment;
             })
             .join('/') || '/';
 
     // Yolun kendisi kişisel veri taşıyabilir: /kullanici/ahmet@ornek.com
-    return Scrubber.text(yol, 300) || '/';
+    return Scrubber.text(path, 300) || '/';
 }
 
-module.exports = { yolDeseni };
+module.exports = { routePattern };

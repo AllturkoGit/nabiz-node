@@ -14,60 +14,60 @@
  * göstermek ve doğrulamanın hub panelinden yapılacağını söylemek.
  */
 
-const { init, report, surum } = require('../src/index');
-const { ortam } = require('../src/ortam');
+const { init, report, version } = require('../src/index');
+const { env: readEnv } = require('../src/env');
 
-const SECRET_UZUNLUGU = 64;
+const SECRET_LENGTH = 64;
 
-function satir(etiket, deger) {
-    console.log(`  ${etiket.padEnd(18)} ${deger}`);
+function line(label, value) {
+    console.log(`  ${label.padEnd(18)} ${value}`);
 }
 
-async function calistir() {
+async function run() {
     /*
      * Süreç ortamı VE `.env` birlikte okunur. Yalnızca process.env'e
      * bakılıyordu ve gerçek bir kurulumda `.env` doğru doldurulmuşken komut
      * "TANIMSIZ" dedi — teşhis aracının yanlış teşhis koyması, hiç teşhis
      * koymamaktan kötüdür.
      */
-    const e = { ...process.env, ...ortam() };
+    const e = { ...process.env, ...readEnv() };
     const secret = e.NABIZ_SECRET || '';
 
     console.log('');
-    satir('SDK sürümü', surum);
-    satir('Etkin', e.NABIZ_ENABLED === 'false' ? 'HAYIR (NABIZ_ENABLED=false)' : 'evet');
-    satir('Hub adresi', e.NABIZ_URL || 'TANIMSIZ');
-    satir('Proje anahtarı', e.NABIZ_KEY || 'TANIMSIZ');
-    satir('Secret uzunluğu', secret ? `${secret.length} karakter` : 'TANIMSIZ');
-    satir('Ortam', e.NABIZ_ENV || process.env.NODE_ENV || 'production');
-    satir('Node', process.version);
+    line('SDK sürümü', version);
+    line('Etkin', e.NABIZ_ENABLED === 'false' ? 'HAYIR (NABIZ_ENABLED=false)' : 'evet');
+    line('Hub adresi', e.NABIZ_URL || 'TANIMSIZ');
+    line('Proje anahtarı', e.NABIZ_KEY || 'TANIMSIZ');
+    line('Secret uzunluğu', secret ? `${secret.length} karakter` : 'TANIMSIZ');
+    line('Ortam', e.NABIZ_ENV || process.env.NODE_ENV || 'production');
+    line('Node', process.version);
     console.log('');
 
-    const sorunlar = [];
+    const problems = [];
 
     if (e.NABIZ_ENABLED === 'false') {
-        sorunlar.push('NABIZ_ENABLED=false — hiçbir veri gönderilmez.');
+        problems.push('NABIZ_ENABLED=false — hiçbir veri gönderilmez.');
     }
 
-    const eksik = ['NABIZ_URL', 'NABIZ_KEY', 'NABIZ_SECRET'].filter((k) => !e[k]);
-    if (eksik.length) sorunlar.push(`${eksik.join(', ')} tanımlı değil.`);
+    const missing = ['NABIZ_URL', 'NABIZ_KEY', 'NABIZ_SECRET'].filter((k) => !e[k]);
+    if (missing.length) problems.push(`${missing.join(', ')} tanımlı değil.`);
 
-    if (secret && secret.length !== SECRET_UZUNLUGU) {
+    if (secret && secret.length !== SECRET_LENGTH) {
         // En sık hata bu: secret kopyalanırken başı veya sonu eksik kalıyor
         // ve sonuç sessizce hiçbir şey göndermemek oluyor.
-        sorunlar.push(
-            `NABIZ_SECRET ${SECRET_UZUNLUGU} karakter olmalı, ${secret.length} karakter. Eksik kopyalanmış olabilir.`,
+        problems.push(
+            `NABIZ_SECRET ${SECRET_LENGTH} karakter olmalı, ${secret.length} karakter. Eksik kopyalanmış olabilir.`,
         );
     }
 
     if ((e.NABIZ_URL || '').startsWith('http://')) {
-        sorunlar.push(
+        problems.push(
             'NABIZ_URL http:// ile başlıyor — secret imzası şifresiz hat üzerinden gider.',
         );
     }
 
-    if (sorunlar.length) {
-        for (const s of sorunlar) console.error(`  ✗ ${s}`);
+    if (problems.length) {
+        for (const problem of problems) console.error(`  ✗ ${problem}`);
         console.log('');
         process.exitCode = 1;
 
@@ -78,9 +78,29 @@ async function calistir() {
 
     if (process.argv.includes('--test')) {
         init();
+
         // Gerçek bir hata raporlanır: hem taşıma hem temizlik sınanmış olur.
-        await report(new Error('nabiz-durum --test ile üretilen sınama olayı'));
-        console.log('  ✓ Sınama olayı gönderildi.');
+        const result = await report(
+            new Error('nabiz-durum --test ile üretilen sınama olayı'),
+        );
+
+        /*
+         * Sonuç okunuyor, "gönderdim" varsayılmıyor. Önceden koşulsuz başarı
+         * yazılıyordu: ağ koptuysa, zaman aşımı olduysa ya da hub reddettiyse
+         * komut yine "✓ gönderildi" diyordu ve kuran kişi kurulumu çalışır
+         * sanıyordu. Gerçek bir kurulumda tam olarak bu yaşandı.
+         */
+        if (result && result.sent) {
+            console.log(`  ✓ Sınama olayı gönderildi (HTTP ${result.status}).`);
+        } else {
+            console.error(
+                `  ✗ Sınama olayı GÖNDERİLEMEDİ: ${(result && (result.error ?? `HTTP ${result.status}`)) || 'bilinmeyen sebep'}`,
+            );
+            console.log('');
+            process.exitCode = 1;
+
+            return;
+        }
     }
 
     console.log('');
@@ -90,4 +110,4 @@ async function calistir() {
     console.log('');
 }
 
-calistir();
+run();
