@@ -76,8 +76,10 @@ npm install @allturko/nabiz-node
 ```
 
 ```env
-# 2. .env — değişken adlarına NEXT_PUBLIC_ / NUXT_PUBLIC_ ÖNEKİ KOYMAYIN.
-#    O önek değeri tarayıcı paketine gömer ve secret internete çıkar.
+# 2. .env — proje kökünde. Paket bu dosyayı kendisi okur; framework'ün
+#    yüklemesini beklemez (ön yükleme sırasında henüz yüklenmemiş olur).
+#    Değişken adlarına NEXT_PUBLIC_ / NUXT_PUBLIC_ ÖNEKİ KOYMAYIN —
+#    o önek değeri tarayıcı paketine gömer ve secret internete çıkar.
 NABIZ_ENABLED=true
 NABIZ_URL=https://monitor.ornek.com
 NABIZ_KEY=proje-anahtari
@@ -124,7 +126,12 @@ geçersiz imzayı dışarıya aynı yanıtla karşılar.
 
 `NODE_OPTIONS` uygulamanın kendi `.env` dosyasına yazılamaz: Node onu süreç başlarken
 okur, `.env` ise uygulama çalışmaya başladıktan sonra okunur. Node'un kısıtı, tasarım
-tercihi değil.
+tercihi değil. **Yalnızca bu satır** için geçerli — `NABIZ_*` değişkenleri `.env`'de
+durabilir, paket o dosyayı kendisi okur.
+
+Okuma önceliği: `process.env` > `.env.<NODE_ENV>` > `.env.local` > `.env`. Süreç ortamı
+her zaman kazanır; dosya yalnızca boşluğu doldurur. Yalnızca `NABIZ_` ile başlayan
+anahtarlar okunur.
 
 ### Bu reçetenin kapsamadıkları
 

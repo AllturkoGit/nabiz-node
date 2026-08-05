@@ -15,6 +15,7 @@
  */
 
 const { init, report, surum } = require('../src/index');
+const { ortam } = require('../src/ortam');
 
 const SECRET_UZUNLUGU = 64;
 
@@ -23,7 +24,13 @@ function satir(etiket, deger) {
 }
 
 async function calistir() {
-    const e = process.env;
+    /*
+     * Süreç ortamı VE `.env` birlikte okunur. Yalnızca process.env'e
+     * bakılıyordu ve gerçek bir kurulumda `.env` doğru doldurulmuşken komut
+     * "TANIMSIZ" dedi — teşhis aracının yanlış teşhis koyması, hiç teşhis
+     * koymamaktan kötüdür.
+     */
+    const e = { ...process.env, ...ortam() };
     const secret = e.NABIZ_SECRET || '';
 
     console.log('');
@@ -32,7 +39,7 @@ async function calistir() {
     satir('Hub adresi', e.NABIZ_URL || 'TANIMSIZ');
     satir('Proje anahtarı', e.NABIZ_KEY || 'TANIMSIZ');
     satir('Secret uzunluğu', secret ? `${secret.length} karakter` : 'TANIMSIZ');
-    satir('Ortam', e.NABIZ_ENV || e.NODE_ENV || 'production');
+    satir('Ortam', e.NABIZ_ENV || process.env.NODE_ENV || 'production');
     satir('Node', process.version);
     console.log('');
 

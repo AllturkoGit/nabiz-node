@@ -1,5 +1,6 @@
 'use strict';
 
+const { ortam } = require('./ortam');
 const { Reporter, SDK_SURUMU } = require('./reporter');
 const Scrubber = require('./scrubber');
 
@@ -23,9 +24,12 @@ let raporlayici = null;
  * Ortam değişkenlerinden yapılandırma. Laravel paketiyle aynı isimler
  * kullanılıyor: aynı projeyi iki dilde izleyen ekip iki ayrı isim seti
  * öğrenmek zorunda kalmasın.
+ *
+ * `process.env` değil `ortam()`: ön yükleme sırasında framework henüz kendi
+ * `.env`'ini okumamış oluyor ve süreç ortamı boş görünüyor.
  */
 function ortamdan() {
-    const e = process.env;
+    const e = { ...process.env, ...ortam() };
 
     return {
         enabled: e.NABIZ_ENABLED !== 'false',

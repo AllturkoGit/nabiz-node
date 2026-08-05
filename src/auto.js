@@ -25,10 +25,25 @@ const { init, hookProcess, reporter } = require('./index');
 const Scrubber = require('./scrubber');
 
 try {
-    init();
+    const r = init();
 
-    // Yapılandırma eksikse hiçbir yama kurulmaz — sıfır ek yük.
-    if (reporter().configured()) {
+    /*
+    | Kancalar `configured()` kontrolüne bakılmadan kurulur.
+    |
+    | Önceden bakılıyordu ve bir tuzak vardı: bu dosya Node başlarken
+    | çalışıyor, framework kendi `.env`'ini çok sonra okuyor. Yapılandırma
+    | o anda görünmüyorsa kanca hiç kurulmuyor ve uygulama ömrü boyunca
+    | kurulmuyordu — hiçbir uyarı vermeden.
+    |
+    | Artık `.env` doğrudan okunuyor (bkz. ortam.js), ama yine de geç gelen
+    | yapılandırmaya karşı korunmak gerekiyor. Kanca kurmanın maliyeti istek
+    | başına tek bir boolean kontrolü; Reporter yapılandırma yoksa zaten
+    | erken dönüyor.
+    |
+    | `enabled` istisna: NABIZ_ENABLED=false açık bir "hiçbir şey yapma"
+    | talimatı ve sonradan değişmez (davranış garantisi 5).
+    */
+    if (r.enabled) {
         hookProcess();
         httpYamala();
     }
