@@ -63,6 +63,46 @@ geçerli ile geçersiz imzayı dışarıya aynı yanıtla karşılar.
 
 ## Kullanım
 
+### Kodsuz kurulum (önerilen)
+
+Uygulama kaynağına **tek satır eklemeden**: Node'a paketi uygulamadan önce yüklemesini
+söylersiniz, kancalar orada kurulur.
+
+```
+NODE_OPTIONS=--require @allturko/nabiz-node/auto
+```
+
+PM2 ile:
+
+```js
+// ecosystem.config.cjs
+module.exports = {
+    apps: [{
+        name: 'uygulamam',
+        script: 'server.js',
+        env: {
+            NODE_OPTIONS: '--require @allturko/nabiz-node/auto',
+        },
+    }],
+};
+```
+
+Bu satır **uygulamanın kendi `.env` dosyasına yazılamaz**: `NODE_OPTIONS` Node başlarken
+okunur, uygulama `.env`'i ise çalışmaya başladıktan sonra. Node'un kısıtı, tasarım tercihi
+değil. Geri kalan her ayar (anahtar, secret, eşikler, açma/kapama) `.env`'den okunur.
+
+Kapsadıkları: yakalanmamış hatalar, işlenmemiş promise reddi, 5xx yanıtlar, yavaş istekler.
+`node:http` üzerinden geçen her şey — Next, Express, Nuxt/Nitro, Fastify, düz Node.
+
+İki taviz var:
+
+- **Rota deseni yaklaşıktır.** Framework'ün eşleştirdiği desene erişilemediği için ham yol
+  normalize edilir: `/urunler/1042` → `/urunler/{id}`. Kesin desen isteyen Express
+  middleware'ini kullanır.
+- **Next'in `onRequestError` kancası kurulmaz.** SSR render hatalarının bir kısmı Next
+  tarafından yakalanıp `node:http` katmanına ulaşmaz; onlar için aşağıdaki
+  `instrumentation.js` gerekir.
+
 ### Next.js (SSR)
 
 SSR hataları tarayıcıya hiç ulaşmaz — `t.js` de error boundary de göremez. Bu kanca

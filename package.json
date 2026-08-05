@@ -1,6 +1,6 @@
 {
     "name": "@allturko/nabiz-node",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "Nabız Hub için Node.js raporlayıcı — sunucu hataları, SSR hataları, yavaş istekler",
     "license": "MIT",
     "author": "AllTurko",
@@ -19,7 +19,8 @@
             "default": "./src/index.js"
         },
         "./express": "./src/express.js",
-        "./next": "./src/next.js"
+        "./next": "./src/next.js",
+        "./auto": "./src/auto.js"
     },
     "bin": {
         "nabiz-durum": "bin/nabiz-durum.js"
