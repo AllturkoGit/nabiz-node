@@ -307,9 +307,14 @@ Aynı sunucudaki tüm Node projelerini tek seferde güncellemek için:
 for d in /home/allturko/wwwroot/*/; do
   [ -d "$d/node_modules/@allturko/nabiz-node" ] || continue
   echo "→ $d"
-  (cd "$d" && npm update @allturko/nabiz-node && npx nabiz-durum)
+  (cd "$d" && npm install @allturko/nabiz-node@latest && npx nabiz-durum)
 done
 ```
+
+`npm update` **değil** `npm install @latest`: 1.0 altındaki sürümlerde `^0.2.1` kısıtı
+`>=0.2.1 <0.3.0` anlamına geliyor ve `npm update` minor artışı bilerek atlıyor. Gerçek bir
+kurulumda tam olarak bu yaşandı — komut "up to date" dedi, paket eski sürümde kaldı ve
+kimse fark etmedi.
 
 Son adım bilinçli: güncelleme sonrası yapılandırmanın hâlâ geçerli olduğunu doğrular.
 Sessizce bozulan bir kurulum, hiç kurulmamış olandan daha tehlikelidir.
