@@ -3,6 +3,7 @@
 const { env: readEnv } = require('./env');
 const { Reporter, SDK_VERSION } = require('./reporter');
 const Scrubber = require('./scrubber');
+const { hookWorkers } = require('./workers');
 
 /**
  * @allturko/nabiz-node — Node tarafı raporlayıcı.
@@ -149,6 +150,13 @@ function hookProcess() {
     process.on('unhandledRejection', (reason) => {
         r.recordException(reason, { kind: 'exception' });
     });
+
+    /*
+     * Worker ve fork kancaları: ana thread'in uncaughtException'ı onları
+     * görmüyor. Worker içinde patlayan hata yalnızca worker nesnesinin
+     * `error` olayına düşer ve kimse dinlemiyorsa hiçbir iz bırakmaz.
+     */
+    hookWorkers((error, context) => r.recordException(error, context));
 
     // Kancalarla birlikte: hookProcess her kurulum reçetesinin ortak adımı,
     // canlılığın ayrıca hatırlanması gereken bir çağrı olmaması gerekiyor.

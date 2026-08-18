@@ -1,6 +1,6 @@
 {
   "name": "@allturko/nabiz-node",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Nabız Hub için Node.js raporlayıcı — sunucu hataları, SSR hataları, yavaş istekler",
   "license": "MIT",
   "author": "AllTurko",

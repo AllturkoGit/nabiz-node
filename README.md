@@ -242,6 +242,81 @@ try {
 - 5xx dönen istekler
 - Eşiği aşan yavaş istekler (varsayılan 1000 ms)
 
+## Worker ve alt süreç çökmeleri
+
+`hookProcess()` yalnızca ana thread'i kancalar. Bir **worker thread** içinde patlayan hata
+ana thread'e istisna olarak ulaşmaz — worker nesnesinin `error` olayına düşer ve kimse
+dinlemiyorsa hiçbir iz bırakmaz. Aynısı `fork()` ile açılan alt süreçler için de geçerli.
+
+Kanca ebeveyn tarafına kuruluyor, worker'ın kendi dosyasına değil: o dosyayı uygulama
+yazıyor ve her worker'da paketi çağırmayı hatırlamak gerekirdi.
+
+Yakalananlar:
+
+- Worker/alt süreçte yakalanmamış hata (`error` olayı)
+- Sıfır olmayan çıkış kodu — hata olayı gelmeden ölmek
+
+Aynı çöküş tek kayıt üretir: yakalanmamış hata önce `error` sonra `exit` tetikler, ikincisi
+elenir. Hata **yutulmaz** — dinleyicisi olmayan bir `error` olayı Node tarafından ana
+thread'e fırlatılmaya devam eder ve oradan `uncaughtException` olarak da raporlanır.
+
+**`spawn` ve `exec` kapsam dışı.** Dış komutlarda sıfır olmayan çıkış kodu rutindir —
+`grep` eşleşme bulamazsa 1 döner — ve hata saymak paneli anlamsız kayıtlarla doldururdu.
+Ayrım IPC kanalından yapılır: `fork()` her zaman kanal açar, `spawn` açmaz.
+
+### Neden prototip yamalanıyor
+
+İlk uygulama `Worker` sınıfını bir alt sınıfla değiştiriyordu ve **çalışmadı**: uygulama
+modülleri `const { Worker } = require('node:worker_threads')` ile referansı kendi yüklenme
+anında kopyalıyor, bizden önce yüklenen her modül yamasız sürümü elinde tutuyordu. Kanca
+sessizce devre dışı kalıyordu — izleme paketinde en pahalı arıza biçimi.
+
+`prototype.emit` bu sorunu bilmiyor: bütün örnekler aynı prototipi paylaşır, hangi
+referansla üretildikleri fark etmez. Kancanın kurulum sırasından bağımsız çalıştığı ayrıca
+doğrulandı.
+
+---
+
+## Canlılık nabzı
+
+Paket sekiz saatte bir hub'a **olay taşımayan** küçük bir istek gönderir.
+
+Sebebi şu: hub bir kurulumun çalışıp çalışmadığını yalnızca gelen hatalardan
+anlıyordu. Sonuç ters dönüyordu — hatasız çalışan bir uygulama hiç olay
+göndermediği için "kurulum çalışmıyor olabilir" diye raporlanıyordu. Sağlıklı
+olmak cezalandırılıyordu.
+
+Artık kanıt isteğin kendisi. Nabız geldiği sürece hub kurulumun ayakta
+olduğunu bilir; gelmediğinde söylediği şey gerçekten doğrudur.
+
+| | |
+|---|---|
+| Aralık | 8 saat |
+| Gövde | `{"events": []}` — hiçbir ölçüm taşımaz |
+| Uç | Olayların gittiği uçla aynı, ek bir adres yok |
+| İlk istek | Süreç başlar başlamaz — deploy sonrası kurulum kendini hemen kanıtlar |
+
+Aralık, hub'ın 24 saatlik sessizlik eşiğinin üçte biri. Eşitlenseydi tek bir
+kaçırılan istek — deploy, yeniden başlatma, kısa bir ağ kesintisi — kurulumu
+bozuk gösterirdi. Üç turluk pay, iki kaçırmayı sorun etmez.
+
+Zamanlayıcı `unref` edilmiştir: kısa ömürlü bir betiği ayakta tutmaz, işini
+bitiren süreç normal şekilde kapanır.
+
+`hookProcess()` çağrıldığında kendiliğinden başlar — kodsuz kurulum, Next
+`instrumentation.ts` ve Express reçetelerinin hepsi bunu zaten çağırıyor.
+Elle yönetmek isterseniz:
+
+```js
+const { startHeartbeat, stopHeartbeat } = require('@allturko/nabiz-node');
+
+startHeartbeat();          // varsayılan 8 saat
+startHeartbeat(3600_000);  // ya da kendi aralığınız (ms)
+stopHeartbeat();
+```
+
+`NABIZ_ENABLED=false` iken ya da yapılandırma eksikken hiç gönderilmez.
+
 ## Ne toplamaz
 
 Bunlar yapılandırmayla dahi açılamaz — kodda karşılığı yoktur:
@@ -271,6 +346,8 @@ Paket, kurulduğu uygulamayı **hiçbir şekilde etkilememelidir**:
 4. **Hub erişilemezse sessizce vazgeçilir.** İzlenen uygulamada hata, log kirliliği veya
    yavaşlama oluşmaz.
 5. **`NABIZ_ENABLED=false` iken hiçbir veri gönderilmez.**
+6. **Canlılık nabzı süreci ayakta tutmaz.** Zamanlayıcı `unref` edilmiştir; işini
+   bitiren betik kapanır.
 
 > Bir izleme paketinin izlediği uygulamayı bozması, çözdüğü sorundan büyük bir sorundur.
 
