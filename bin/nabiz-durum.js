@@ -14,7 +14,7 @@
  * göstermek ve doğrulamanın hub panelinden yapılacağını söylemek.
  */
 
-const { init, report, version } = require('../src/index');
+const { init, report, reporter, version } = require('../src/index');
 const { env: readEnv } = require('../src/env');
 
 const SECRET_LENGTH = 64;
@@ -95,6 +95,30 @@ async function run() {
         } else {
             console.error(
                 `  ✗ Sınama olayı GÖNDERİLEMEDİ: ${(result && (result.error ?? `HTTP ${result.status}`)) || 'bilinmeyen sebep'}`,
+            );
+            console.log('');
+            process.exitCode = 1;
+
+            return;
+        }
+    }
+
+    /*
+     * `--nabiz`: bağlantıyı panele hata düşürmeden sınar.
+     *
+     * `--test` gerçek bir istisna gönderiyor ve tek kurulumu doğrularken
+     * doğru — taşıma ile temizlik birlikte sınanmış oluyor. Ama onlarca
+     * kurulumu gezen bir döngüde panele onlarca sahte hata bırakır: izleme
+     * aracının kendi gürültüsünü üretmesi.
+     */
+    if (process.argv.includes('--nabiz')) {
+        const result = await reporter().heartbeat();
+
+        if (result && result.sent) {
+            console.log(`  ✓ Canlılık isteği gönderildi (HTTP ${result.status}).`);
+        } else {
+            console.error(
+                `  ✗ Canlılık isteği GÖNDERİLEMEDİ: ${(result && (result.error ?? `HTTP ${result.status}`)) || 'bilinmeyen sebep'}`,
             );
             console.log('');
             process.exitCode = 1;

@@ -9,6 +9,23 @@ npm install @allturko/nabiz-node@latest
 
 ---
 
+## 0.4.1
+
+### Eklendi
+
+- **`nabiz-durum --nabiz`** — bağlantıyı panele hata düşürmeden sınar.
+
+  `--test` gerçek bir istisna gönderiyor ve tek bir kurulumu doğrularken
+  doğru: taşıma ile temizlik birlikte sınanmış oluyor. Ama onlarca kurulumu
+  gezen bir güncelleme döngüsünde panele onlarca sahte hata bırakır —
+  izleme aracının kendi gürültüsünü üretmesi.
+
+  `--nabiz` olay taşımıyor; kabul edildiğinde projenin bağlantı durumunu
+  tazeliyor. HTTP 204 hâlâ kabul kanıtı değil (uç geçersiz imzaya da 204
+  döner) ama kabulün gerçek kanıtı artık panelde: bağlantı "Bağlı" olur.
+
+---
+
 ## 0.4.0
 
 **Hub gereksinimi:** Bu sürümün canlılık nabzını hub'ın tanıması için

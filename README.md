@@ -52,8 +52,14 @@ kopyalanmışsa hiçbir şey patlamaz, hiçbir log düşmez — hub geçersiz im
 Kurulum aylarca çalışmıyor olabilir ve o sessizlik "sorun yok" sanılır.
 
 ```bash
-npx nabiz-durum --test   # hub'a bir sınama olayı gönderir
+npx nabiz-durum --test    # gerçek bir sınama olayı — panelde hata olarak görünür
+npx nabiz-durum --nabiz   # yalnızca canlılık isteği — panele hata düşürmez
 ```
+
+`--test` tek bir kurulumu doğrularken doğru seçim: taşıma ile temizlik birlikte sınanmış
+olur ve olay panelde gözle görülür. **Onlarca kurulumu gezen bir güncelleme döngüsünde ise
+`--nabiz` kullanılır** — `--test` orada panele onlarca sahte hata bırakır, yani izleme
+aracı kendi gürültüsünü üretir.
 
 Verinin gerçekten ulaştığı yalnızca **hub panelinden** doğrulanır: proje satırındaki
 bağlantı durumu `Bağlı` görünmelidir. Komut bunu kendi başına söyleyemez, çünkü hub
