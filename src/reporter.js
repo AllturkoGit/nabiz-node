@@ -138,6 +138,24 @@ class Reporter {
     }
 
     /**
+     * "Buradayım" — olay taşımayan canlılık isteği.
+     *
+     * Hub'ın bir kurulumun çalıştığını anlamasının tek yolu buydu: hata
+     * gelmesi. Sonuç ters dönüyordu — hatasız çalışan uygulama "kurulum
+     * bozuk" görünüyordu. Artık kanıt isteğin kendisi; boş bir toplu istek
+     * yeterli ve ayrı bir uca gerek yok.
+     *
+     * @returns {Promise<{sent: boolean, status?: number, error?: string}>}
+     */
+    async heartbeat() {
+        if (!this.configured()) {
+            return { sent: false, error: 'yapilandirma-eksik' };
+        }
+
+        return await this.send({ events: [] });
+    }
+
+    /**
      * Mesajı SQL taşıyan hatalar. Sürücü paketlerine bağımlılık kurulmadığı
      * için ada ve içeriğe bakılıyor.
      */

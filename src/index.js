@@ -81,6 +81,58 @@ function report(error, context) {
  * davranışı korunur. Bir izleme paketinin süreç yönetimine karışması,
  * çözdüğü sorundan büyük bir sorundur.
  */
+/**
+ * Canlılık isteklerinin aralığı.
+ *
+ * Hub 24 saat ses çıkmayan kurulumu "sessiz" sayıyor. Aralık eşiğe eşit
+ * olsaydı tek bir kaçırılan istek — deploy, yeniden başlatma, birkaç
+ * dakikalık ağ kesintisi — projeyi anında bozuk gösterirdi. Üçte bir güvenli
+ * tolerans: iki tur kaçsa bile alarm çalmaz.
+ *
+ * Sıklaştırmanın bilgi değeri yok: kurulumun çalışıp çalışmadığı saatlik
+ * değişen bir şey değil ve sitenin ayakta olup olmadığını hub kendi
+ * probuyla zaten ölçüyor.
+ */
+const HEARTBEAT_MS = 8 * 60 * 60 * 1000;
+
+let heartbeatTimer = null;
+
+/**
+ * Süreç boyunca düzenli "buradayım" gönderir.
+ *
+ * Süreç başlarken hemen bir istek atılır: deploy sonrası kurulum kendini
+ * anında kanıtlar, sekiz saat beklemez.
+ */
+function startHeartbeat(intervalMs = HEARTBEAT_MS) {
+    // İki kez çağrılırsa ikinci zamanlayıcı kurulmaz; hookProcess birden
+    // fazla yerden çağrılabiliyor (auto, instrumentation, elle).
+    if (heartbeatTimer) {
+        return heartbeatTimer;
+    }
+
+    reporter().heartbeat();
+
+    heartbeatTimer = setInterval(() => reporter().heartbeat(), intervalMs);
+
+    /*
+     * unref: zamanlayıcı süreci hayatta tutmasın. Kısa ömürlü bir betik
+     * işini bitirince kapanmalı — izleme paketi onu sekiz saat ayakta
+     * tutarsa CLI komutları asla dönmez.
+     */
+    if (typeof heartbeatTimer.unref === 'function') {
+        heartbeatTimer.unref();
+    }
+
+    return heartbeatTimer;
+}
+
+function stopHeartbeat() {
+    if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+    }
+}
+
 function hookProcess() {
     const r = reporter();
 
@@ -98,6 +150,10 @@ function hookProcess() {
         r.recordException(reason, { kind: 'exception' });
     });
 
+    // Kancalarla birlikte: hookProcess her kurulum reçetesinin ortak adımı,
+    // canlılığın ayrıca hatırlanması gereken bir çağrı olmaması gerekiyor.
+    startHeartbeat();
+
     return r;
 }
 
@@ -105,6 +161,8 @@ module.exports = {
     init,
     report,
     hookProcess,
+    startHeartbeat,
+    stopHeartbeat,
     reporter,
     Reporter,
     Scrubber,
