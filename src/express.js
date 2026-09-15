@@ -70,11 +70,28 @@ express.errors = function errors() {
 /**
  * Express'in eşleşen rota deseni (`/urunler/:id`), gerçek yol değil.
  * Desen yoksa yola düşülür ve query string atılır (M3).
+ *
+ * MOUNT YOLU DESENE DAHİL. `req.route.path` router'ın İÇİNDEKİ yolu veriyor,
+ * mount yolunu değil: `app.use('/api', router)` altındaki `/urunler/:id`
+ * için `req.baseUrl` = `/api` ve `req.route.path` = `/urunler/:id`. İkisi
+ * birleştirilmezse farklı ön eklere bağlı iki router aynı kayda düşer —
+ * `/api/urunler/:id` ile `/admin/urunler/:id` tek satır olur ve hem hata
+ * gruplaması hem Katman B yüzdelikleri iki ayrı ucu birbirine karıştırır.
+ *
+ * Koşul eskiden ters kuruluydu: `req.route.path` doluysa kısa devre yapıp
+ * tek başına dönüyordu ve mount yolunu ekleyen dal ancak `route.path`
+ * BOŞKEN — yani eklenecek bir şey yokken — çalışıyordu.
  */
 function routePattern(req) {
-    const pattern =
-        (req.route && req.route.path) ||
-        (req.baseUrl ? req.baseUrl + (req.route ? req.route.path : '') : null);
+    const base = req.baseUrl || '';
+    const inner = req.route && req.route.path ? String(req.route.path) : null;
+
+    let pattern = null;
+
+    if (inner !== null) {
+        // Mount yolu altındaki kök (`router.get('/')`): `/api/` değil `/api`.
+        pattern = base && inner === '/' ? base : base + inner;
+    }
 
     return Scrubber.path(pattern || req.originalUrl || req.url) || '/';
 }

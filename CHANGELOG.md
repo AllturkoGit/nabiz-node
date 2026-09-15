@@ -9,6 +9,36 @@ npm install @allturko/nabiz-node@latest
 
 ---
 
+## 0.4.2
+
+### Düzeltildi
+
+- **Express: mount yolu rota desenine dahil edilmiyordu.** `app.use('/api',
+  router)` altındaki bir uç `/api/urunler/:id` yerine `/urunler/:id` diye
+  raporlanıyordu.
+
+  Sonucu gruplama hatasıydı ve sessizdi: farklı ön eklere bağlı iki router
+  aynı kayda düşüyordu. `/api/urunler/:id` ile `/admin/urunler/:id` panelde
+  tek satır oluyor, hata sayaçları toplanıyor ve endpoint yüzdelikleri iki
+  ayrı ucu birbirine karıştırıyordu.
+
+  Koşul ters kuruluydu: `req.route.path` doluysa kısa devre yapıp tek başına
+  dönüyordu; mount yolunu ekleyen dal ancak `route.path` BOŞKEN — yani
+  eklenecek bir şey yokken — çalışıyordu.
+
+### Eklendi
+
+- **`src/express.js` ve `src/next.js` için testler.** İki dosya da müşteri
+  projelerine kuruluyordu ve hiçbir testleri yoktu; yukarıdaki kusur o
+  boşluk kapatılırken çıktı.
+
+  22 test: rota deseni, mount yolu, query string temizliği (M3), 5xx
+  işaretlemesi, istemci kopmasında ölçüm yazılmaması, hatanın yutulmaması,
+  ve raporlayıcı patladığında isteğin etkilenmemesi. Dört mutasyonun dördü
+  de yakalanıyor.
+
+---
+
 ## 0.4.1
 
 ### Eklendi
