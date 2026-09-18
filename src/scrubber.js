@@ -19,9 +19,11 @@ const DESENLER = [
     */
     [/[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.\p{L}{2,}/gu, '[eposta]'],
     [/\bTR(?:[\s-]?\d){24}\b/gi, '[iban]'],
-    [/\b\d(?:[\s-]?\d){12,18}\b/g, '[kart]'],
+    // Aday; karar isCard'da — dosya adındaki zaman damgası kart sanılmasın.
+    [/\b\d(?:[\s-]?\d){12,18}\b/g, (m) => (isCard(m) ? '[kart]' : m)],
     [/\b[1-9]\d{10}\b/g, '[tckn]'],
-    [/(?:\+90|0)?[\s-]?5\d{2}[\s-]?\d{3}[\s-]?\d{2}[\s-]?\d{2}\b/g, '[telefon]'],
+    // Önünde rakam olamaz: `1795123456789` damgası `179[telefon]` oluyordu.
+    [/(?<!\d)(?:\+?90|0)?[\s-]?5\d{2}[\s-]?\d{3}[\s-]?\d{2}[\s-]?\d{2}\b/g, '[telefon]'],
     /*
     | Uzun rastgele diziler: oturum kimliği, API anahtarı, jeton, hash.
     | Gerçek bir sızıntıda yakalandı — veritabanı hatasının mesajı SQL'i
@@ -30,8 +32,52 @@ const DESENLER = [
     | 24 hane eşiği bilinçli: oturum kimlikleri 40, API anahtarları 32+;
     | normal kelimeler ve sınıf adları bu uzunluğa ulaşmaz.
     */
-    [/[A-Za-z0-9][A-Za-z0-9_-]{23,}/g, '[jeton]'],
+    // Aday; karar isToken'da — okunur dosya adları maskelenmesin.
+    [/[A-Za-z0-9][A-Za-z0-9_-]{23,}/g, (m) => (isToken(m) ? '[jeton]' : m)],
 ];
+
+/**
+ * Gerçek kart numarası: 2-9 ile başlar ve Luhn'dan geçer.
+ *
+ * Kart ağlarının hiçbiri 0/1 ile başlamıyor; milisaniye zaman damgası 1 ile
+ * başlıyor. Yükleme dosya adlarındaki damga (`urun-1726571234567-75206.png`)
+ * kart sanılıyor, panelde `[kart]` görünüyordu. Her gerçek kart Luhn'u
+ * geçtiği için kısıt gizlilikten bir şey kaybettirmez.
+ */
+function isCard(candidate) {
+    const digits = candidate.replace(/\D/g, '');
+    if (digits === '' || digits[0] < '2') return false;
+
+    let sum = 0;
+    let double = false;
+    for (let i = digits.length - 1; i >= 0; i--) {
+        let d = Number(digits[i]);
+        if (double) {
+            d *= 2;
+            if (d > 9) d -= 9;
+        }
+        sum += d;
+        double = !double;
+    }
+
+    return sum % 10 === 0;
+}
+
+/**
+ * Rastgele dizi: tire/alt çizgiyle bölünmemiş 16+ karakterlik parça taşır ya
+ * da harf içeren hex'tir (UUID, hash). Tireyle birleşmiş kısa parçalar okunur
+ * addır: `kampanya-gorseli-yaz-indirimi-1726571234567`.
+ *
+ * Bilinen taviz: tire/alt çizgisi sık düşen base64url jetonların küçük bir
+ * kısmı kaçabilir. Oturum kimliği, API anahtarı, JWT, hex ve UUID etkilenmez.
+ */
+function isToken(candidate) {
+    if (candidate.split(/[-_]/).some((part) => part.length >= 16)) return true;
+
+    const compact = candidate.replace(/[-_]/g, '');
+
+    return /^[0-9a-f]+$/i.test(compact) && /[a-f]/i.test(compact);
+}
 
 function text(value, limit) {
     if (value === null || value === undefined || value === '') return null;

@@ -146,3 +146,37 @@ test('hub erişilemezse hata fırlatılmaz', async () => {
     // Buraya ulaşmak testin kendisidir.
     assert.ok(true);
 });
+
+/*
+| willRecord, recordException'ın kararını senkron verir: yanıtı işaretleyen
+| yollar buna bakıyor. Kararlar ayrışırsa ya çift kayıt ya hiç kayıt olur.
+*/
+test('willRecord recordException ile aynı kararı verir ve fırlatmaz', async () => {
+    const r = new Reporter({ ...OPTIONS, ignore: ['Yoksay'] });
+    const error = new Error('x');
+
+    assert.strictEqual(r.willRecord(error), true);
+    assert.strictEqual(r.willRecord('düz metin'), true);
+    assert.strictEqual(r.willRecord(Object.assign(new Error('y'), { name: 'Yoksay' })), false);
+
+    await r.recordException(error);
+    assert.strictEqual(r.willRecord(error), false, 'raporlanmış nesne');
+    assert.strictEqual(new Reporter(OPTIONS).willRecord(error), false, 'başka kopya da görür');
+
+    assert.strictEqual(new Reporter({ ...OPTIONS, enabled: false }).willRecord(new Error('z')), false);
+    assert.strictEqual(new Reporter({}).willRecord(new Error('z')), false);
+
+    const hostile = new Proxy({}, { get() { throw new Error('tuzak'); }, getPrototypeOf() { throw new Error('tuzak'); } });
+    assert.doesNotThrow(() => r.willRecord(hostile));
+});
+
+test('ad listesiyle yok sayma diğer hataları düşürmez', async () => {
+    class Sinif extends Error {}
+    const r = new Reporter({ ...OPTIONS, ignore: ['Yoksay', Sinif] });
+
+    await r.recordException(new Error('gitmeli'));
+    await r.recordException(new Sinif('gitmemeli'));
+    await r.recordException(Object.assign(new Error('gitmemeli'), { name: 'Yoksay' }));
+
+    assert.deepStrictEqual(sent.map((e) => e.body.msg), ['gitmeli']);
+});

@@ -4,6 +4,8 @@ const { env: readEnv } = require('./env');
 const { Reporter, SDK_VERSION } = require('./reporter');
 const Scrubber = require('./scrubber');
 const { hookWorkers } = require('./workers');
+const { markReported } = require('./route');
+const { resolveRelease } = require('./release');
 
 /**
  * @allturko/nabiz-node — Node tarafı raporlayıcı.
@@ -38,7 +40,8 @@ function fromEnvironment() {
         key: e.NABIZ_KEY,
         secret: e.NABIZ_SECRET,
         env: e.NABIZ_ENV || e.NODE_ENV || 'production',
-        release: e.NABIZ_RELEASE || null,
+        // NABIZ_RELEASE > CI/PaaS değişkeni > .git; bkz. release.js.
+        release: resolveRelease(e).value,
         timeout: e.NABIZ_TIMEOUT ? Number(e.NABIZ_TIMEOUT) : 2000,
         slowRequestMs: e.NABIZ_SLOW_REQUEST_MS
             ? Number(e.NABIZ_SLOW_REQUEST_MS)
@@ -68,11 +71,27 @@ function reporter() {
  * Bir hatayı hub'a bildirir. Hiçbir koşulda hata fırlatmaz ve **beklenmesi
  * gerekmez**: `await` edilmezse arka planda tamamlanır.
  *
+ * Kendi hata işleyicisinden çağıran uygulama `res` verirse yanıt
+ * işaretlenir ve ölçüm aynı istek için ayrıca "HTTP 500" açmaz. Verilmezse
+ * tek arıza panelde iki kayıt olur: biri stack'li, biri stack'siz. `res`
+ * yalnızca işaret için; hub'a gönderilmez. Hata gönderilmeyecekse (yok
+ * sayılan sınıf, aynı nesne daha önce raporlanmış) işaret konmaz.
+ *
  * @param {unknown} error
- * @param {{kind?: string, route?: string, method?: string}} [context]
+ * @param {{kind?: string, route?: string, method?: string, res?: object}} [context]
  */
 function report(error, context) {
-    return reporter().recordException(error, context);
+    const { res, ...rest } = context || {};
+    const r = reporter();
+
+    /*
+     * Yalnızca gerçekten gönderilecek hatada işaretlenir. Aksi halde
+     * (yok sayılan sınıf, daha önce raporlanmış aynı nesne, kapalı
+     * raporlayıcı) ölçüm de sussun ve arıza hiç iz bırakmasın istenmez.
+     */
+    if (res && r.willRecord(error)) markReported(res);
+
+    return r.recordException(error, rest);
 }
 
 /**
@@ -165,6 +184,25 @@ function hookProcess() {
     return r;
 }
 
+/*
+| Adaptörler önce sabite alınıyor, sonra kısa yazımla dışa aktarılıyor.
+|
+| `express: require('./express').express` biçimi ESM'den adlandırılmış
+| içe aktarmayı kırıyordu: Node, CommonJS dışa aktarımlarını çalıştırmadan
+| metinden okuyor ve yalnızca kısa yazımı tanıyor. `import { hono } from`
+| satırı "Named export not found" veriyordu; Next paketleyicisi bunu
+| gizliyordu, saf Node ESM'de (Hono, SvelteKit, Nuxt sunucusu) görünüyordu.
+*/
+const { express } = require('./express');
+const { nextOnRequestError } = require('./next');
+const { fastify } = require('./fastify');
+const { koa } = require('./koa');
+const { hono } = require('./hono');
+const { nest } = require('./nest');
+const { sveltekit } = require('./sveltekit');
+const { reactRouter } = require('./react-router');
+const version = SDK_VERSION;
+
 module.exports = {
     init,
     report,
@@ -174,7 +212,13 @@ module.exports = {
     reporter,
     Reporter,
     Scrubber,
-    version: SDK_VERSION,
-    express: require('./express').express,
-    nextOnRequestError: require('./next').nextOnRequestError,
+    version,
+    express,
+    nextOnRequestError,
+    fastify,
+    koa,
+    hono,
+    nest,
+    sveltekit,
+    reactRouter,
 };

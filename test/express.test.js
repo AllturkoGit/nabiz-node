@@ -225,6 +225,143 @@ test('raporlama patlasa da hata zincire devredilir', async () => {
     assert.strictEqual(forwarded, error);
 });
 
+/*
+| 4xx çağıranın hatası; kamuya açık API'de sürekli akar ve panelde gerçek
+| arızayı gömer. Diğer adaptörlerle aynı kural. Zincir yine sürer.
+*/
+test('hata middleware i 4xx göndermez ama zincire devreder', async () => {
+    const notFound = Object.assign(new Error('kayıt yok'), { status: 404 });
+    let forwarded = null;
+
+    express.errors()(notFound, fakeRequest(), fakeResponse(), (e) => (forwarded = e));
+    await new Promise((r) => setImmediate(r));
+
+    assert.strictEqual(sent.length, 0);
+    assert.strictEqual(forwarded, notFound);
+});
+
+test('hata middleware i durum kodu taşımayan ve 5xx hatayı gönderir', async () => {
+    const unavailable = Object.assign(new Error('bakım'), { statusCode: 503 });
+
+    express.errors()(new Error('düz'), fakeRequest(), fakeResponse(), () => {});
+    express.errors()(unavailable, fakeRequest(), fakeResponse(), () => {});
+    await new Promise((r) => setImmediate(r));
+
+    assert.strictEqual(sent.length, 2);
+});
+
+/*
+| Kendi hata işleyicisini yazan uygulama (gyd-backend) report() çağırıyor.
+| `res` verince ölçüm middleware'i aynı istek için "HTTP 500" açmamalı;
+| `res` hub'a gitmemeli.
+*/
+test('report a res verilince ölçüm HTTP 500 tekrarlamaz, res gönderilmez', async () => {
+    const req = fakeRequest({ originalUrl: '/api/ilan' });
+    const res = fakeResponse(500);
+
+    express()(req, res, () => {});
+    nabiz.report(new Error('db'), { route: '/api/ilan', method: 'GET', res });
+    res.emit('finish');
+    await new Promise((r) => setImmediate(r));
+
+    assert.deepStrictEqual(sent.map((e) => e.kind), ['exception']);
+    assert.ok(!('res' in sent[0]));
+});
+
+/*
+| Hata middleware'i asıl hatayı gönderdi; ölçüm middleware'i aynı istek için
+| stack'siz bir "HTTP 500" daha açmamalı.
+*/
+test('hata middleware i raporladıysa HTTP 500 tekrarlanmaz', async () => {
+    const req = fakeRequest({ originalUrl: '/odeme' });
+    const res = fakeResponse(500);
+
+    express()(req, res, () => {});
+    express.errors()(new Error('ödeme'), req, res, () => {});
+    res.emit('finish');
+    await new Promise((r) => setImmediate(r));
+
+    assert.deepStrictEqual(sent.map((e) => e.kind), ['exception']);
+});
+
+/*
+| `next` tek yerde ve try'ın dışında. İçeride çağrılıp senkron fırlatsaydı
+| catch yutar ve akış ikinci `next(error)`'a düşerdi.
+*/
+test('hata middleware i next i tam bir kez çağırır, next fırlatsa bile', () => {
+    for (const error of [
+        Object.assign(new Error('kayıt yok'), { status: 404 }),
+        new Error('sunucu'),
+    ]) {
+        let calls = 0;
+        const boom = new Error('sonraki katman');
+
+        assert.throws(
+            () =>
+                express.errors()(error, fakeRequest(), fakeResponse(), () => {
+                    calls++;
+                    throw boom;
+                }),
+            (e) => e === boom,
+            'next in hatası yutulmamalı',
+        );
+        assert.strictEqual(calls, 1, String(error.message));
+    }
+});
+
+/*
+| Modül düzeyinde tek hata nesnesi her istekte fırlatılıyor. Nesne ilk
+| istekte raporlandı; ikinci istekte raporlayıcı onu tekrar göndermiyor.
+| Yanıt yine de işaretlenseydi ölçüm de susar ve ikinci 500 hiç iz
+| bırakmazdı.
+*/
+test('aynı hata nesnesi ikinci istekte gönderilmezse HTTP 500 ölçümü açılır', async () => {
+    const singleton = new Error('bakım modu');
+
+    for (let i = 0; i < 2; i++) {
+        const req = fakeRequest({ originalUrl: '/odeme' });
+        const res = fakeResponse(500);
+
+        express()(req, res, () => {});
+        express.errors()(singleton, req, res, () => {});
+        res.emit('finish');
+        await new Promise((r) => setImmediate(r));
+    }
+
+    assert.deepStrictEqual(sent.map((e) => e.kind), ['exception', 'http_5xx']);
+});
+
+test('report a verilen res, hata gönderilmeyecekse işaretlenmez', async () => {
+    const singleton = new Error('db');
+
+    for (let i = 0; i < 2; i++) {
+        const req = fakeRequest({ originalUrl: '/api/ilan' });
+        const res = fakeResponse(500);
+
+        express()(req, res, () => {});
+        nabiz.report(singleton, { res });
+        res.emit('finish');
+        await new Promise((r) => setImmediate(r));
+    }
+
+    assert.deepStrictEqual(sent.map((e) => e.kind), ['exception', 'http_5xx']);
+});
+
+test('yok sayılan hata sınıfında yanıt işaretlenmez', async () => {
+    nabiz.init({ ...OPTIONS, ignore: ['BakimHatasi'] });
+
+    const error = Object.assign(new Error('bakım'), { name: 'BakimHatasi' });
+    const req = fakeRequest({ originalUrl: '/x' });
+    const res = fakeResponse(503);
+
+    express()(req, res, () => {});
+    express.errors()(error, req, res, () => {});
+    res.emit('finish');
+    await new Promise((r) => setImmediate(r));
+
+    assert.deepStrictEqual(sent.map((e) => e.kind), ['http_5xx']);
+});
+
 test('mount yolu altındaki kök çift eğik çizgi üretmez', async () => {
     await runMiddleware(
         fakeRequest({ originalUrl: '/api', baseUrl: '/api', route: { path: '/' } }),

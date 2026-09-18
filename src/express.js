@@ -1,6 +1,7 @@
 'use strict';
 
 const Scrubber = require('./scrubber');
+const { markReported, wasReported, isServerError, statusOf } = require('./route');
 
 /**
  * Express / Connect middleware: yavaş istek ve 5xx ölçümü.
@@ -28,6 +29,9 @@ function express(options = {}) {
          */
         res.once('finish', () => {
             try {
+                // errors() asıl hatayı gönderdi; "HTTP 500" tekrar olur.
+                if (res.statusCode >= 500 && wasReported(res)) return;
+
                 const durationMs =
                     Number(process.hrtime.bigint() - startedAt) / 1_000_000;
 
@@ -48,16 +52,37 @@ function express(options = {}) {
     };
 }
 
-/** Express hata middleware'i. Hatayı **yutmaz**, zincire devrederek geçirir. */
+/**
+ * Express hata middleware'i. Hatayı **yutmaz**, zincire devrederek geçirir.
+ *
+ * 4xx taşıyan hata (`status`/`statusCode` 400–499, örn. http-errors'un
+ * NotFound'u) gönderilmez: diğer adaptörlerle aynı kural. Önceden her hata
+ * gidiyordu ve kamuya açık bir API'de doğrulama hataları paneli dolduruyordu;
+ * gyd-backend bu yüzden middleware'i hiç kullanmayıp elle yazmıştı.
+ * Durum kodu taşımayan hata sunucu hatasıdır ve gönderilir.
+ */
 express.errors = function errors() {
     const get = () => require('./index').reporter();
 
     return function nabizErrorMiddleware(error, req, res, next) {
+        /*
+         * `next` try'ın DIŞINDA ve tek yerde: içeride çağrılıp senkron
+         * fırlatsaydı catch yutar, akış aşağı düşer ve `next` ikinci kez
+         * çağrılırdı.
+         */
         try {
-            get().recordException(error, {
-                route: routePattern(req),
-                method: req.method,
-            });
+            if (isServerError(statusOf(error))) {
+                const r = get();
+                // Gönderilmeyecek hatada işaret yok: "HTTP 500" tek iz olur.
+                const willRecord = r.willRecord(error);
+
+                r.recordException(error, {
+                    route: routePattern(req),
+                    method: req.method,
+                });
+
+                if (willRecord) markReported(res);
+            }
         } catch {
             // Sessiz.
         }

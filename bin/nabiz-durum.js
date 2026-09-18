@@ -16,6 +16,9 @@
 
 const { init, report, reporter, version } = require('../src/index');
 const { env: readEnv } = require('../src/env');
+const { normalizeEnv, acceptedEnv } = require('../src/environment');
+const { resolveRelease } = require('../src/release');
+const { checkForUpdate } = require('../src/update-check');
 
 const SECRET_LENGTH = 64;
 
@@ -35,15 +38,45 @@ async function run() {
 
     console.log('');
     line('SDK sürümü', version);
+
+    /*
+     * Güncelleme denetimi yalnızca burada, izlenen uygulamanın çalışma
+     * yolunda değil. Güncelleme olması uyarıdır, çıkış kodu değişmez; npm'e
+     * ulaşılamaması da. `NABIZ_DURUM_CEVRIMDISI=1` denetimi atlar.
+     */
+    const update = await checkForUpdate(version);
+    if (!update.skipped) {
+        line('Güncel sürüm', update.latest || 'denetlenemedi');
+        if (update.newer) {
+            console.log('  ! Güncelleme var: npm install @allturko/nabiz-node@latest');
+        }
+    }
+
     line('Etkin', e.NABIZ_ENABLED === 'false' ? 'HAYIR (NABIZ_ENABLED=false)' : 'evet');
     line('Hub adresi', e.NABIZ_URL || 'TANIMSIZ');
     line('Proje anahtarı', e.NABIZ_KEY || 'TANIMSIZ');
     line('Secret uzunluğu', secret ? `${secret.length} karakter` : 'TANIMSIZ');
-    line('Ortam', e.NABIZ_ENV || process.env.NODE_ENV || 'production');
+    const envRaw = e.NABIZ_ENV || process.env.NODE_ENV || 'production';
+    const envName = normalizeEnv(envRaw);
+    line('Ortam', envName === envRaw ? envName : `${envName} (${envRaw})`);
+    const release = resolveRelease(e, process.cwd());
+    line(
+        'Sürüm etiketi',
+        release.value
+            ? `${release.value} (kaynak: ${release.source})`
+            : 'tanımsız (kaynak: yok)',
+    );
     line('Node', process.version);
     console.log('');
 
     const problems = [];
+
+    if (!acceptedEnv(envName)) {
+        problems.push(
+            `Ortam "${envRaw}" hub tarafından kabul edilmez — olaylar ve canlılık sessizce reddedilir. ` +
+                'NABIZ_ENV=production, staging ya da local yazın.',
+        );
+    }
 
     if (e.NABIZ_ENABLED === 'false') {
         problems.push('NABIZ_ENABLED=false — hiçbir veri gönderilmez.');

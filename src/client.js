@@ -17,7 +17,7 @@ class HubClient {
         this.url = options.url || null;
         this.key = options.key || null;
         this.secret = options.secret || null;
-        this.timeout = options.timeout ?? 2000;
+        this.timeout = timeoutMs(options.timeout);
     }
 
     configured() {
@@ -94,4 +94,36 @@ class HubClient {
     }
 }
 
-module.exports = { HubClient };
+/**
+ * `NABIZ_TIMEOUT` milisaniye; 100'ün altı saniye sayılır.
+ *
+ * Laravel ve Python paketleri aynı adla saniye bekliyor. `2` yazan birinin
+ * gönderimleri 2 ms'de kesilir ve hiçbir olay ulaşmazdı — sessizce. Kural
+ * bütün paketlerde aynı: 100 ve üstü milisaniye, altı saniye. Geçersiz,
+ * sıfır, negatif ya da sonsuz değer varsayılana (2000 ms) döner.
+ *
+ * Sonuç [100, 10000] ms aralığına sıkıştırılır: 100 ms'nin altı hub'a
+ * ulaşmaya yetmez, 10 saniyenin üstü ise gönderimi süreç kapanırken bile
+ * askıda tutar. `init({ timeout })` da aynı kuraldan geçer.
+ */
+const TIMEOUT_DEFAULT_MS = 2000;
+const TIMEOUT_MIN_MS = 100;
+const TIMEOUT_MAX_MS = 10000;
+
+function timeoutMs(value) {
+    if (value === null || value === undefined || value === '') {
+        return TIMEOUT_DEFAULT_MS;
+    }
+
+    const number = Number(value);
+
+    if (!Number.isFinite(number) || number <= 0) {
+        return TIMEOUT_DEFAULT_MS;
+    }
+
+    const ms = number < 100 ? number * 1000 : number;
+
+    return Math.min(TIMEOUT_MAX_MS, Math.max(TIMEOUT_MIN_MS, ms));
+}
+
+module.exports = { HubClient, timeoutMs };

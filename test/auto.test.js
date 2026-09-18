@@ -77,6 +77,26 @@ test('yamalanan sunucu isteği kod eklenmeden ölçer', async () => {
     assert.strictEqual(event.route, 'GET /urunler/{id}');
 });
 
+/*
+| Framework adaptörü asıl hatayı stack'iyle gönderdiyse aynı istek için
+| ikinci bir "HTTP 500" kaydı açılmaz — tek arıza, tek satır.
+*/
+test('adaptörün raporladığı istek için HTTP 500 tekrarlanmaz', async () => {
+    const { markReported } = require('../src/route');
+    const server = http.createServer((req, res) => {
+        markReported(res);
+        res.statusCode = 500;
+        res.end('hata');
+    });
+
+    await new Promise((done) => server.listen(0, done));
+    await rawFetch(`http://127.0.0.1:${server.address().port}/x`);
+    await new Promise((done) => setTimeout(done, 50));
+    server.close();
+
+    assert.strictEqual(sent.filter((e) => e.kind === 'http_5xx').length, 0);
+});
+
 /** Yama isteği ne değiştirmeli ne de bozmalı. */
 test('yama isteğin yanıtını değiştirmez', async () => {
     const server = http.createServer((req, res) => {

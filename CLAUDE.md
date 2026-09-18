@@ -34,7 +34,11 @@ README ve public API dokümantasyonu Türkçe.
 hosted olması, bir düzeltmenin 5 dakikada tüm sitelere yayılmasını sağlıyor. Aynı kodu
 npm'e de koymak iki dağıtım kanalı yaratır ve biri kaçınılmaz olarak geride kalır.
 
-Bu pakete yalnızca **sunucuda çalışan** kod girer: Node, SSR, Express.
+Bu pakete yalnızca **sunucuda çalışan** kod girer: Node, SSR ve framework adaptörleri
+(Express, Next, Nuxt/Nitro, Fastify, Koa, Hono, NestJS, SvelteKit, React Router).
+
+Adaptörler framework'ü **içe aktarmaz** — bağımlılık sıfır kalır. Kanca sözleşmesine
+dayanır; testler sahte nesneyle, yeni adaptör ayrıca gerçek sürümle uçtan uca denenir.
 
 ---
 

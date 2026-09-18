@@ -65,6 +65,16 @@ Verinin gerçekten ulaştığı yalnızca **hub panelinden** doğrulanır: proje
 bağlantı durumu `Bağlı` görünmelidir. Komut bunu kendi başına söyleyemez, çünkü hub
 geçerli ile geçersiz imzayı dışarıya aynı yanıtla karşılar.
 
+Komut ayrıca şunları gösterir:
+
+- **Sürüm etiketi** ve nereden bulunduğu (bkz. [Sürüm etiketi](#sürüm-etiketi)).
+- **Güncel sürüm:** npm'deki son sürüm (`registry.npmjs.org`, 2 saniye zaman aşımı).
+  Kurulu sürümden yeniyse `Güncelleme var: npm install @allturko/nabiz-node@latest`
+  uyarısı basılır. Bu bir uyarıdır, komutun çıkış kodunu değiştirmez; npm'e
+  ulaşılamazsa `denetlenemedi` yazar, o da başarısızlık sayılmaz.
+  `NABIZ_DURUM_CEVRIMDISI=1` denetimi tamamen atlar. Denetim **yalnızca bu komutta**
+  yapılır — izlenen uygulamanın çalışma yolunda npm'e hiçbir istek gitmez.
+
 ---
 
 ## Hızlı kurulum reçetesi
@@ -147,8 +157,9 @@ anahtarlar okunur.
   `<script>` etiketi eklenmesi gerekir. Paket bunu otomatik enjekte etmez ve etmemeli:
   yanıt gövdesini değiştirmek `Content-Length`'i bozar, streaming SSR'ı kırar ve
   sıkıştırmayla çakışır.
-- **Kesin rota deseni.** Ham yol normalize edilir (`/urunler/1042` → `/urunler/{id}`);
-  framework'ün eşleştirdiği desen gerekiyorsa Express middleware'i kullanılır.
+- **Framework'ün kendi içinde yakaladığı hataların sınıfı ve stack'i.** Kodsuz kurulum
+  yalnızca "HTTP 500" görür; hatanın kendisi için [framework adaptörü](#framework-adaptörleri)
+  eklenir — çoğunda tek satır.
 
 ---
 
@@ -185,11 +196,16 @@ değil. Geri kalan her ayar (anahtar, secret, eşikler, açma/kapama) `.env`'den
 Kapsadıkları: yakalanmamış hatalar, işlenmemiş promise reddi, 5xx yanıtlar, yavaş istekler.
 `node:http` üzerinden geçen her şey — Next, Express, Nuxt/Nitro, Fastify, düz Node.
 
+Yol ham adresten yazılır: yalnızca kimlik gibi görünen parçalar değişir (`/urunler/1042` →
+`/urunler/{id}`, UUID → `{uuid}`, uzun hex → `{hash}`), okunur parçalar olduğu gibi kalır
+(`/oyun/deprem-cantasi`) — hangi sayfanın bozulduğu panelde görünsün.
+
 İki taviz var:
 
-- **Rota deseni yaklaşıktır.** Framework'ün eşleştirdiği desene erişilemediği için ham yol
-  normalize edilir: `/urunler/1042` → `/urunler/{id}`. Kesin desen isteyen Express
-  middleware'ini kullanır.
+- **Framework'ün yakaladığı hatada yalnızca durum kodu görünür.** Nuxt, Fastify, Nest
+  gibi framework'ler hatayı kendileri yakalayıp 500'e çeviriyor; `node:http` katmanına
+  hatanın kendisi ulaşmıyor. Sınıf ve stack için [framework adaptörü](#framework-adaptörleri)
+  eklenir.
 - **Next'in `onRequestError` kancası kurulmaz.** SSR render hatalarının bir kısmı Next
   tarafından yakalanıp `node:http` katmanına ulaşmaz; onlar için aşağıdaki
   `instrumentation.js` gerekir.
@@ -226,6 +242,119 @@ app.use(nabiz.errors());   // hata middleware'i EN SONA
 `nabiz.errors()` hatayı **yutmaz**, `next(hata)` ile zincire devreder; uygulamanın kendi
 hata sayfası çalışmaya devam eder.
 
+4xx taşıyan hata (`status` / `statusCode` 400–499) gönderilmez — doğrulama ve bulunamadı
+hataları arıza değil. Durum kodu taşımayan hata sunucu hatası sayılır ve gönderilir.
+
+### Framework adaptörleri
+
+Kodsuz kurulumun **üstüne** eklenir. Framework'ün kendi içinde yakaladığı hatayı sınıf ve
+stack'iyle gönderir. 4xx (404, doğrulama, yetki) gönderilmez.
+
+**Tek arıza, tek kayıt** — yalnızca yanıt nesnesine erişen adaptörlerde: Express
+`errors()`, Nuxt/Nitro, Fastify, Koa, Hono (Node) ve NestJS (HTTP). Bunlar yanıtı
+işaretler, kodsuz kurulum aynı istek için ayrıca "HTTP 500" açmaz.
+
+**SvelteKit, React Router / Remix ve Next'te iki kayıt olur.** Bu kancalar yalnızca web
+`Request`'ini veriyor, Node yanıt nesnesine erişim yok; işaret konamıyor. Kodsuz kurulum da
+yüklüyse tek arıza panelde iki satır açar: stack'li `exception` ve stack'siz `http_5xx`.
+Kodsuz kurulum yüklü değilse yalnızca `exception` gider.
+
+Durum kodu hatanın **üstünden** okunur (`status`, `statusCode`, Nest'te `getStatus()`).
+Durum kodu taşımayan bir hatayı uygulama kendi işleyicisinde 4xx'e çeviriyorsa
+(Fastify `setErrorHandler`, Nest exception filter, Express'te kendi hata middleware'i) o
+hata **yine gönderilir** — adaptör işleyicinin vereceği kararı önceden bilemez. Göndermek
+istenmiyorsa hataya kodu koyun (`statusCode: 422`) ya da sınıfı `ignore`'a ekleyin.
+
+**Nuxt 3/4** — tek satır, dosya eklemeye gerek yok:
+
+```ts
+// nuxt.config.ts
+export default defineNuxtConfig({
+    modules: ['@allturko/nabiz-node/nuxt'],
+});
+```
+
+Sunucu uçları (`server/api`), SSR sayfa hataları ve `<NuxtErrorBoundary>` içinde kalan
+render hataları. Modül yalnızca sunucu paketine girer; tarayıcı hataları `t.js`'in işi.
+
+**Düz Nitro** (Analog, SolidStart dahil):
+
+```ts
+// server/plugins/nabiz.ts
+import nabiz from '@allturko/nabiz-node/nitro';
+export default defineNitroPlugin(nabiz);
+```
+
+**Fastify:**
+
+```js
+const { fastify: nabiz } = require('@allturko/nabiz-node');
+app.register(nabiz);   // rotalardan önce; iç içe kapsamlar da görülür
+```
+
+**Koa:**
+
+```js
+const { koa: nabiz } = require('@allturko/nabiz-node');
+nabiz(app);
+```
+
+Koa'nın kendi hata günlüğü korunur: Koa onu yalnızca kimse `error` dinlemiyorsa kuruyor,
+dinleyici tek başına bizsek varsayılan elle çağrılır.
+
+**Hono:**
+
+```js
+import { hono as nabiz } from '@allturko/nabiz-node';
+app.use(nabiz());
+```
+
+`app.onError` kullanılmadı — tek işleyici tutuyor ve uygulamanınkini ezerdi.
+
+Desteklenen çalışma ortamları: **Node (`@hono/node-server`) ve Bun.** Cloudflare Workers ve
+diğer edge ortamları desteklenmez: paket `node:fs` ve `node:crypto` kullanıyor (Workers'ta
+`nodejs_compat` olmadan yüklenemez) ve gönderim `waitUntil` ile beklenmiyor — yanıt
+döndükten sonra çalışma ortamı gönderimi kesebilir, olay sessizce kaybolur. Bun'da
+`node:http` kullanılmadığı için kodsuz kurulum ölçüm yapmaz; adaptör yine hatayı gönderir.
+
+**NestJS:**
+
+```ts
+import { nest as nabiz } from '@allturko/nabiz-node';
+app.useGlobalInterceptors(nabiz());
+```
+
+Filter değil interceptor: hatayı görür ve aynen yeniden fırlatır, uygulamanın kendi
+exception filter'larına ve hata yanıtına dokunmaz.
+
+HTTP dışı bağlamlar: mikroservis (`rpc`) ve WebSocket (`ws`) işleyicilerinde
+`RpcException` / `WsException` ve alt sınıfları gönderilmez — istemciye dönen iş hatası,
+arıza değil; durum kodu taşımadıkları için ada bakılıyor. Diğer hatalar (TypeError,
+veritabanı) rota olmadan gönderilir. GraphQL'de 4xx `HttpException`'lar durum kodundan
+elenir, geri kalanı gider. Guard ve middleware'de fırlatılan hatalar interceptor'a
+ulaşmaz.
+
+**SvelteKit** — `src/hooks.server.js`:
+
+```js
+import { sveltekit as nabiz } from '@allturko/nabiz-node';
+export const handleError = nabiz();
+// mevcut işleyici varsa sarılır, dönüşü korunur:
+// export const handleError = nabiz(({ error }) => ({ message: 'Hata' }));
+```
+
+**React Router 7 / Remix** — `app/entry.server.tsx`:
+
+```ts
+import { reactRouter as nabiz } from '@allturko/nabiz-node';
+export const handleError = nabiz();
+```
+
+Ziyaretçi sayfadan ayrılınca iptal edilen istekler gönderilmez.
+
+**Express** için yukarıdaki `nabiz.errors()` aynı işi yapar; **Next** için
+`instrumentation.js`.
+
 ### Elle bildirim
 
 ```js
@@ -239,12 +368,29 @@ try {
 }
 ```
 
+Kendi Express hata işleyicisinden bildiren uygulama `res`'i de verir:
+
+```js
+app.use((err, req, res, next) => {
+    if (durum >= 500) report(err, { route, method: req.method, res });
+    // ...
+});
+```
+
+`res` verilmezse ölçüm middleware'i aynı istek için ayrıca stack'siz bir "HTTP 500"
+açar ve tek arıza panelde iki kayıt olur. `res` hub'a gönderilmez, yalnızca işaret için.
+
+İşaret yalnızca hata gerçekten gönderilecekse konur. Yok sayılan sınıf (`ignore`), kapalı
+raporlayıcı ya da daha önce raporlanmış aynı hata nesnesinde (her istekte fırlatılan
+modül düzeyi tek bir hata) yanıt işaretlenmez ve ölçümün "HTTP 500"ü tek iz olarak kalır.
+
 ---
 
 ## Ne toplar
 
 - Yakalanmamış hatalar ve işlenmemiş promise reddi
-- SSR render hataları (Next 15+)
+- SSR render hataları (Next 15+, Nuxt, SvelteKit, React Router — adaptörle)
+- Framework'ün kendi içinde yakaladığı hatalar, sınıf ve stack'iyle (adaptörle)
 - 5xx dönen istekler
 - Eşiği aşan yavaş istekler (varsayılan 1000 ms)
 
@@ -367,9 +513,9 @@ Paket, kurulduğu uygulamayı **hiçbir şekilde etkilememelidir**:
 | `NABIZ_URL` | — | Hub adresi |
 | `NABIZ_KEY` | — | Panelden alınan proje anahtarı |
 | `NABIZ_SECRET` | — | 64 karakter. **Yalnızca sunucuda bulunur** |
-| `NABIZ_ENV` | `NODE_ENV` | `production` · `staging` · `local` |
-| `NABIZ_RELEASE` | — | Sürüm etiketi (commit sha, tag) |
-| `NABIZ_TIMEOUT` | `2000` | Gönderim zaman aşımı (ms) |
+| `NABIZ_ENV` | `NODE_ENV` | `production` · `staging` · `local`. Takma adlar çevrilir: `prod`/`live` → production, `stage`/`stg`/`preprod`/`uat` → staging, `dev`/`development`/`test`/`testing` → local. Tanınmayan değeri hub reddeder; teşhis komutu hata verir |
+| `NABIZ_RELEASE` | kendiliğinden | Sürüm etiketi (commit sha, tag). Boşsa bulunur, bkz. [Sürüm etiketi](#sürüm-etiketi) |
+| `NABIZ_TIMEOUT` | `2000` | Gönderim zaman aşımı, **ms**. 100'ün altı saniye sayılır (`2` → 2000 ms) — Laravel ve Python aynı adla saniye bekliyor. Sonuç 100–10000 ms aralığına sıkıştırılır; geçersiz, sıfır ya da negatif değer 2000'e döner. Kural bütün paketlerde aynı |
 | `NABIZ_SLOW_REQUEST_MS` | `1000` | Bu süreyi aşan istek yavaş sayılır |
 
 Kod içinden de verilebilir:
@@ -379,6 +525,35 @@ const { init } = require('@allturko/nabiz-node');
 
 init({ url: '...', key: '...', secret: '...', ignore: ['NotFoundError'] });
 ```
+
+`init({ timeout })` da `NABIZ_TIMEOUT` ile aynı kuraldan geçer: `init({ timeout: 50 })`
+50 ms değil 50 saniye demektir ve 10000 ms'ye sıkıştırılır.
+
+### Sürüm etiketi
+
+`NABIZ_RELEASE` neredeyse hiçbir projede dolu değildi; hub "bu hata X deploy'undan sonra
+başladı" diyemiyordu. Etiket artık kurulumda bir kez, şu sırayla bulunur (Laravel ve Python
+paketleriyle aynı kural):
+
+1. `NABIZ_RELEASE` — kırpılır, en çok 64 karakter, olduğu gibi.
+2. İlk dolu CI/PaaS değişkeni: `GIT_COMMIT`, `GIT_SHA`, `COMMIT_SHA`, `SOURCE_VERSION`,
+   `VERCEL_GIT_COMMIT_SHA`, `RENDER_GIT_COMMIT`, `HEROKU_SLUG_COMMIT`, `CI_COMMIT_SHA`.
+   Sha biçimindeyse (7–40 hex) küçük harf ilk 12 karakter, değilse en çok 64 karakter.
+3. Uygulama kökündeki (`process.cwd()`) `.git`: `HEAD` → dal ref dosyası, yoksa
+   `packed-refs`; ayrık HEAD doğrudan sha. `.git` bir dosyaysa (worktree, alt modül)
+   içindeki `gitdir:` izlenir. Yalnızca geçerli 40 hanelik sha kabul edilir; ilk 12 karakter.
+4. Hiçbiri yoksa etiket gönderilmez.
+
+Sunucularımızda deploy `git pull` olduğu için `.git` yerinde duruyor ve çoğu kurulumda
+hiçbir şey yazmak gerekmiyor. `git` programı çalıştırılmaz (alt süreç yok), yalnızca
+kurulumda birkaç küçük dosya senkron okunur ve hiçbir koşulda hata fırlatmaz.
+
+Deploy sonrası süreç yeniden başlatılınca yeni sha okunur. Başlatılmazsa bellekte hâlâ eski
+kod çalışıyordur — eski sha o durumda **doğru** etikettir.
+
+`init({ release })` verilirse her şeyi yener. `npx nabiz-durum` etiketi kaynağıyla gösterir:
+`Sürüm etiketi  a1b2c3d4e5f6 (kaynak: .git)` — kaynak `NABIZ_RELEASE`, değişkenin adı,
+`.git` ya da `yok`.
 
 ---
 

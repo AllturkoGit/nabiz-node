@@ -1,7 +1,7 @@
 {
   "name": "@allturko/nabiz-node",
-  "version": "0.4.2",
-  "description": "Nabız Hub için Node.js raporlayıcı — sunucu hataları, SSR hataları, yavaş istekler",
+  "version": "0.5.0",
+  "description": "Nabız Hub için Node.js raporlayıcı — sunucu hataları, SSR hataları, yavaş istekler; Express, Next, Nuxt/Nitro, Fastify, Koa, Hono, NestJS, SvelteKit, React Router",
   "license": "MIT",
   "author": "AllTurko",
   "repository": {
@@ -20,7 +20,15 @@
     },
     "./express": "./src/express.js",
     "./next": "./src/next.js",
-    "./auto": "./src/auto.js"
+    "./auto": "./src/auto.js",
+    "./nuxt": {
+      "types": "./types/nuxt.d.ts",
+      "default": "./src/nuxt.js"
+    },
+    "./nitro": {
+      "types": "./types/nitro.d.ts",
+      "default": "./src/nitro.js"
+    }
   },
   "bin": {
     "nabiz-durum": "bin/nabiz-durum.js"
@@ -39,6 +47,14 @@
     "error-tracking",
     "nextjs",
     "express",
+    "nuxt",
+    "nitro",
+    "fastify",
+    "koa",
+    "hono",
+    "nestjs",
+    "sveltekit",
+    "react-router",
     "nabiz"
   ]
 }

@@ -12,17 +12,16 @@
  *
  * Karşılığında iki taviz var ve ikisi de bilinçli:
  *
- * 1. **Rota deseni yok.** Framework'ün eşleştirdiği desene (`/urunler/:id`)
- *    erişemiyoruz; ham yol normalize ediliyor (`/urunler/{id}`). Yaklaşık ama
- *    gruplamayı bozmayacak kadar iyi. Kesin desen isteyen Express
- *    middleware'ini kullanır.
+ * 1. **Hatanın kendisi yok, yalnızca durum kodu.** Framework'ler hatayı
+ *    kendi içinde yakalayıp 500'e çeviriyor; buradan yalnızca "HTTP 500"
+ *    görünür. Sınıf ve stack için framework adaptörü eklenir (bkz. README).
  * 2. **node:http yamalanıyor.** Yama yalnızca ölçüm ekler, isteği ne
  *    değiştirir ne geciktirir; her adımı try/catch içinde ve hata durumunda
  *    orijinal davranışa dönüyor.
  */
 
 const { init, hookProcess, reporter } = require('./index');
-const Scrubber = require('./scrubber');
+const { routePattern, wasReported } = require('./route');
 
 try {
     const r = init();
@@ -97,6 +96,9 @@ function measure(req, res) {
      */
     res.once('finish', () => {
         try {
+            // Adaptör asıl hatayı stack'iyle gönderdi; "HTTP 500" tekrar olur.
+            if (res.statusCode >= 500 && wasReported(res)) return;
+
             reporter().recordRequest({
                 route: routePattern(req.url),
                 method: req.method,
@@ -107,45 +109,6 @@ function measure(req, res) {
             // Sessiz.
         }
     });
-}
-
-/**
- * Ham yolu desene yaklaştırır: `/urunler/1042` → `/urunler/{id}`.
- *
- * Olmasaydı her ürün sayfası ayrı bir parmak izi üretir, panel binlerce tek
- * seferlik satırla dolar ve gruplama tamamen anlamsızlaşırdı.
- */
-function routePattern(url) {
-    /*
-    | Sıra önemli: normalize ÖNCE, temizlik SONRA.
-    |
-    | Ters sırada UUID'ler `[jeton]` desenine takılıyor (36 karakter, 24 hane
-    | eşiğinin çok üstünde) ve `/siparis/{uuid}/detay` yerine
-    | `/siparis/[jeton]/detay` çıkıyordu. Testin yakaladığı gerçek bir hataydı.
-    */
-    let path = String(url || '/')
-        .split('?')[0]
-        .split('#')[0];
-
-    path =
-        path
-            .split('/')
-            .map((segment) => {
-                if (segment === '') return segment;
-
-                // Sayı, uuid, uzun hash: hepsi kimlik.
-                if (/^\d+$/.test(segment)) return '{id}';
-                if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(segment)) {
-                    return '{uuid}';
-                }
-                if (/^[0-9a-f]{16,}$/i.test(segment)) return '{hash}';
-
-                return segment;
-            })
-            .join('/') || '/';
-
-    // Yolun kendisi kişisel veri taşıyabilir: /kullanici/ahmet@ornek.com
-    return Scrubber.text(path, 300) || '/';
 }
 
 module.exports = { routePattern };

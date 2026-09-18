@@ -2,8 +2,27 @@
 
 const { HubClient } = require('./client');
 const Scrubber = require('./scrubber');
+const { normalizeEnv } = require('./environment');
 
 const SDK_VERSION = require('../package.json').version;
+
+/*
+| WeakSet yalnızca kendi modül örneğini görüyor. Nuxt paketi iki ayrı
+| derleme çıktısına gömüyor (Nitro sunucusu ve Vue SSR paketi); ikisi aynı
+| SSR hatasını görüyor ve her kopya kendi WeakSet'ine bakıp gönderiyordu —
+| gerçek bir Nuxt 3.21 derlemesinde her hata panelde iki kez çıktı.
+| İşaret hata nesnesinin üstünde, küresel sembolle: bütün kopyalar görür.
+*/
+const REPORTED = Symbol.for('nabiz.error.reported');
+
+function markError(error) {
+    try {
+        // Sayılamaz: uygulamanın hatayı JSON'a çevirmesi ya da gezmesi değişmez.
+        Object.defineProperty(error, REPORTED, { value: true });
+    } catch {
+        // Donmuş nesne — WeakSet tek başına korur.
+    }
+}
 
 /**
  * Ölçüm biriktirir ve olayları hub'a gönderir.
@@ -17,7 +36,7 @@ class Reporter {
     constructor(options = {}) {
         this.client = new HubClient(options);
         this.enabled = options.enabled !== false;
-        this.env = options.env || 'production';
+        this.env = normalizeEnv(options.env);
         this.release = options.release || null;
         this.source = options.source || 'server';
         this.slowRequestMs = options.slowRequestMs ?? 1000;
@@ -32,6 +51,33 @@ class Reporter {
 
     configured() {
         return this.enabled && this.client.configured();
+    }
+
+    /**
+     * `recordException` bu hatayı gönderecek mi — senkron, fırlatmaz.
+     *
+     * Yanıtı işaretleyen yollar (adaptörler, `report(hata, { res })`,
+     * `errors()`) önce buna bakıyor. Gönderilmeyecek hatada işaret konursa
+     * ölçüm de "HTTP 500" açmaz ve arıza hiç iz bırakmaz: modül düzeyinde
+     * tek bir hata nesnesini her istekte fırlatan uygulamada ilk istekten
+     * sonraki bütün 500'ler kayboluyordu. Gönderimin ağda başarısız olması
+     * burada bilinemez; o durumda da tek kayıt kaybolur, iki değil.
+     *
+     * @param {unknown} error
+     * @returns {boolean}
+     */
+    willRecord(error) {
+        try {
+            if (!this.configured() || this.ignored(error)) return false;
+
+            if (error && typeof error === 'object') {
+                return !(this.reported.has(error) || error[REPORTED]);
+            }
+
+            return true;
+        } catch {
+            return false;
+        }
     }
 
     /**
@@ -50,11 +96,12 @@ class Reporter {
             }
 
             if (error && typeof error === 'object') {
-                if (this.reported.has(error)) {
+                if (this.reported.has(error) || error[REPORTED]) {
                     return { sent: false, error: 'zaten-raporlandi' };
                 }
 
                 this.reported.add(error);
+                markError(error);
             }
 
             const message = error && error.message ? error.message : String(error);
@@ -172,8 +219,16 @@ class Reporter {
     ignored(error) {
         const name = (error && error.name) || '';
 
+        /*
+         * `instanceof` yalnızca sınıfa uygulanır. Dize girdiye uygulanınca
+         * TypeError fırlatıyordu; recordException onu yakalayıp vazgeçtiği
+         * için `ignore: ['Ad']` veren kurulumda adı TUTMAYAN bütün hatalar
+         * da sessizce düşüyordu.
+         */
         return this.ignore.some(
-            (entry) => entry === name || (error && error instanceof entry),
+            (entry) =>
+                entry === name ||
+                (typeof entry === 'function' && Boolean(error) && error instanceof entry),
         );
     }
 }
