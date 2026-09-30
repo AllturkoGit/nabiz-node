@@ -78,6 +78,30 @@ test('yamalanan sunucu isteği kod eklenmeden ölçer', async () => {
 });
 
 /*
+| Express bağlı router'a girerken req.url'den mount yolunu siliyor ve yanıt
+| router içinden gönderilince silinmiş hâl kalıyordu. Test Express'in
+| yaptığını taklit ediyor: originalUrl'i YAZMADAN req.url'yi kısaltıyor —
+| düzeltme ikisinden birine değil, isteğin başındaki adrese dayanmalı.
+*/
+test('mount yolu router req.url\'yi kısaltsa da yolda kalır', async () => {
+    const server = http.createServer((req, res) => {
+        req.url = req.url.replace(/^\/api/, '') || '/';
+        res.statusCode = 500;
+        res.end('hata');
+    });
+
+    await new Promise((done) => server.listen(0, done));
+    await rawFetch(`http://127.0.0.1:${server.address().port}/api/urunler/42`);
+    await new Promise((done) => setTimeout(done, 50));
+    server.close();
+
+    const event = sent.find((e) => e.kind === 'http_5xx');
+
+    assert.ok(event, '5xx olayı gönderilmeliydi');
+    assert.strictEqual(event.route, 'GET /api/urunler/{id}');
+});
+
+/*
 | Framework adaptörü asıl hatayı stack'iyle gönderdiyse aynı istek için
 | ikinci bir "HTTP 500" kaydı açılmaz — tek arıza, tek satır.
 */

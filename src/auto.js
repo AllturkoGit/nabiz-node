@@ -90,6 +90,19 @@ function measure(req, res) {
     const startedAt = process.hrtime.bigint();
 
     /*
+     * Yol İSTEĞİN BAŞINDA alınıyor, `finish` anında değil.
+     *
+     * Express bağlı bir router'a girerken `req.url`'den mount yolunu siliyor
+     * (`app.use('/api', router)` altında `/api/urunler` → `/urunler`) ve
+     * yanıt router'ın içinden gönderildiyse `finish` anında silinmiş hâli
+     * duruyordu: `/api/urunler` panelde `/urunler` görünüyor, farklı ön
+     * eklere bağlı router'lar aynı kayda düşüyordu. `emit('request')` anında
+     * hiçbir framework henüz dokunmadı; `originalUrl` Express/Connect'in
+     * sakladığı özgün adres, varsa o öncelikli.
+     */
+    const url = req.url;
+
+    /*
      * `close` değil `finish` dinleniyor: `close` istemci bağlantıyı kestiğinde
      * de tetiklenir ve o istek "yavaş" sayılmamalı — süre kullanıcının
      * kopmasıyla ölçülmüş olur.
@@ -100,7 +113,7 @@ function measure(req, res) {
             if (res.statusCode >= 500 && wasReported(res)) return;
 
             reporter().recordRequest({
-                route: routePattern(req.url),
+                route: routePattern(req.originalUrl || url),
                 method: req.method,
                 status: res.statusCode,
                 durationMs: Number(process.hrtime.bigint() - startedAt) / 1_000_000,

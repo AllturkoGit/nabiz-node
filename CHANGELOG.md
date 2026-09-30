@@ -9,6 +9,20 @@ npm install @allturko/nabiz-node@latest
 
 ---
 
+## Yayımlanmamış
+
+### Düzeltildi
+
+- **Kodsuz kurulumda mount yolu kayboluyordu.** `auto.js` yolu yanıt
+  bittiğinde `req.url`'den okuyordu; Express bağlı bir router'a girerken
+  `req.url`'den mount yolunu siliyor. `app.use('/api', router)` altındaki
+  `/api/urunler` panelde `/urunler` görünüyor, farklı ön eklere bağlı
+  router'lar aynı kayda düşüyordu. Yol artık isteğin başında alınıyor
+  (`originalUrl` varsa o). Express adaptörü (`nabiz.express()`) bundan
+  etkilenmiyordu; o zaten `baseUrl` + `originalUrl` kullanıyor.
+
+---
+
 ## 0.5.0
 
 ### Eklendi
